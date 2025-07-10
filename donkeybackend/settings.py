@@ -33,7 +33,7 @@ SECRET_KEY = 'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'localhost:3000',]
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'localhost:3000', 'donkey.todayautomate.com']
 
 
 # Application definition
