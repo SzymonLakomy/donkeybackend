@@ -1,11 +1,21 @@
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
+
 from .models import User, Company
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
     company_name = serializers.CharField(source='name')
     nip          = serializers.CharField(required=False, allow_blank=True)
-    email        = serializers.EmailField(write_only=True)
+    email = serializers.EmailField(
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                message="Użytkownik z takim e-mailem już istnieje."
+            )
+        ]
+    )
+
     first_name   = serializers.CharField(write_only=True)
     last_name    = serializers.CharField(write_only=True)
     password     = serializers.CharField(write_only=True)
