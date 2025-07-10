@@ -11,3 +11,6 @@ django-extensions
 rest_framework_simplejwt
 dotenv
 drf_spectacular
+djangorestframework-simplejwt
+
+psycopg2-binary
