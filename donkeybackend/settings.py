@@ -35,7 +35,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102']
 
-APPEND_SLASH = True
+APPEND_SLASH = False
 
 # Application definition
 
