@@ -2,27 +2,52 @@ from rest_framework import serializers
 from .models import User, Company
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-class CompanyRegisterSerializer(serializers.Serializer):
-    company_name = serializers.CharField()
-    email        = serializers.EmailField()
-    first_name   = serializers.CharField()
-    last_name    = serializers.CharField()
+class CompanyCreateSerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(source='name')
     nip          = serializers.CharField(required=False, allow_blank=True)
+    email        = serializers.EmailField(write_only=True)
+    first_name   = serializers.CharField(write_only=True)
+    last_name    = serializers.CharField(write_only=True)
     password     = serializers.CharField(write_only=True)
 
+    class Meta:
+        model = Company
+        fields = [
+            'company_name',
+            'nip',
+            'email',       # dane właściciela
+            'first_name',
+            'last_name',
+            'password'
+        ]
+
     def create(self, validated_data):
-        comp = Company.objects.create(name=validated_data['company_name'])
-        user = User.objects.create_user(
-            email=validated_data['email'],
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
-            password=validated_data['password'],
-            role='owner',
-            company=comp,
-            is_staff=True,
-            is_superuser=True
-        )
-        return user
+        # wyciągamy dane użytkownika
+        user_data = {
+            'email':      validated_data.pop('email'),
+            'first_name': validated_data.pop('first_name'),
+            'last_name':  validated_data.pop('last_name'),
+            'password':   validated_data.pop('password'),
+            'role':       'owner',
+            'is_staff':   True,
+            'is_superuser': True,
+        }
+        # tworzymy Company (ModelSerializer zadba o name←company_name i nip)
+        company = super().create(validated_data)
+
+        # tworzymy właściciela
+        User.objects.create_user(company=company, **user_data)
+
+        return company
+
+
+# 2. Tylko do OUTPUT: prosty serializer modelowy, zwracający kod etc.
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = ['id', 'name', 'code', 'nip', 'created_at']
+        read_only_fields = fields
+
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     company_code = serializers.CharField(write_only=True)
