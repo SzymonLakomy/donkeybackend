@@ -1,0 +1,13 @@
+Django~=5.2.4
+djangorestframework~=3.16.0
+dotenv~=0.9.9
+python-dotenv~=1.1.
+Django~=5.2.4
+djangorestframework~=3.16.0
+markdown
+django-filter
+django-cors-headers
+django-extensions
+rest_framework_simplejwt
+dotenv
+drf_spectacular
