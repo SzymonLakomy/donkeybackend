@@ -1,14 +1,23 @@
 # Create your models here.
+import uuid
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 
+
+def gen_company_code():
+    return uuid.uuid4().hex[:8]
+
+
 class Company(models.Model):
     name = models.CharField(max_length=255)
+    code = models.CharField(max_length=8, unique=True, default=gen_company_code)
     nip = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.code})"
+
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
