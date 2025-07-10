@@ -35,6 +35,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'localhost:3000', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102']
 
+APPEND_SLASH = False
 
 # Application definition
 
@@ -64,6 +65,9 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'rest_framework.middleware.RenameSlugMiddleware',
+
 ]
 
 ROOT_URLCONF = 'donkeybackend.urls'
