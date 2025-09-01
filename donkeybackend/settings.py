@@ -38,6 +38,15 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 
 
 APPEND_SLASH = False
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+]
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -72,6 +81,8 @@ MIDDLEWARE = [
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "authorization",
+    "content-type",
+
 ]
 
 
