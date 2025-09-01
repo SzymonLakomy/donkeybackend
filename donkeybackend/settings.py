@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import os
 
+from corsheaders.defaults import default_headers
 from django.conf import settings
 from dotenv import load_dotenv
 from urllib.parse import urlparse, parse_qsl
@@ -68,6 +69,11 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
 
 ]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization",
+]
+
 
 ROOT_URLCONF = 'donkeybackend.urls'
 
