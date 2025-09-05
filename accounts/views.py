@@ -29,6 +29,7 @@ class RegisterCompanyView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         company = serializer.save()
+        print(company)
 
         # 2. przygotowanie danych wyjściowych
         out_ser = CompanySerializer(company, context=self.get_serializer_context())
