@@ -38,12 +38,10 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 
 
 APPEND_SLASH = False
 
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-
-]
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
+'localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443'
 ]
 
 
@@ -65,6 +63,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+'   corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
