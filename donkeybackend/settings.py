@@ -75,7 +75,6 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.common.CommonMiddleware',
-
 ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [

@@ -90,6 +90,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["company_id"] = user.company_id
         return token
 
+    def validate(self, attrs):
+        # Use the default validation to get tokens first
+        data = super().validate(attrs)
+        user = self.user
+        data["user"] = {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "full_name": getattr(user, "full_name", f"{user.first_name} {user.last_name}"),
+            "role": user.role,
+            "company_id": user.company_id,
+            "company_name": user.company.name if getattr(user, "company_id", None) else None,
+            "is_active": user.is_active,
+            "is_staff": user.is_staff,
+        }
+        return data
+
 # Nowe serializery dla menedżera
 
 class PositionSerializer(serializers.ModelSerializer):
