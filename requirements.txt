@@ -1,16 +1,19 @@
 Django~=5.2.4
 djangorestframework~=3.16.0
 dotenv~=0.9.9
-python-dotenv
+python-dotenv~=1.1.1
 Django~=5.2.4
 djangorestframework~=3.16.0
 markdown
 django-filter
-django-cors-headers
+django-cors-headers~=4.7.0
 django-extensions
 rest_framework_simplejwt
 dotenv
-drf_spectacular
+drf_spectacular~=0.28.0
 djangorestframework-simplejwt
 
 psycopg2-binary
+jsonschema~=4.24.0
+openai~=2.4.0
+ortools~=9.14.6206

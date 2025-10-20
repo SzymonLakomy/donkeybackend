@@ -1,0 +1,210 @@
+[
+  {
+    "date": "2025-10-06",
+    "location": "Restauracja A",
+    "start": "10:30",
+    "end": "19:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-06",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-06",
+    "location": "Restauracja A",
+    "start": "12:00",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-07",
+    "location": "Restauracja A",
+    "start": "10:00",
+    "end": "16:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-07",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-07",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "20:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-07",
+    "location": "Restauracja A",
+    "start": "12:00",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-08",
+    "location": "Restauracja A",
+    "start": "10:30",
+    "end": "19:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-08",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-08",
+    "location": "Restauracja A",
+    "start": "11:30",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-09",
+    "location": "Restauracja A",
+    "start": "10:00",
+    "end": "16:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-09",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-09",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "20:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-09",
+    "location": "Restauracja A",
+    "start": "12:00",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-10",
+    "location": "Restauracja A",
+    "start": "10:30",
+    "end": "17:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-10",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-10",
+    "location": "Restauracja A",
+    "start": "11:30",
+    "end": "20:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-10",
+    "location": "Restauracja A",
+    "start": "12:30",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-11",
+    "location": "Restauracja A",
+    "start": "10:30",
+    "end": "17:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-11",
+    "location": "Restauracja A",
+    "start": "11:00",
+    "end": "18:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-11",
+    "location": "Restauracja A",
+    "start": "11:30",
+    "end": "20:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-11",
+    "location": "Restauracja A",
+    "start": "12:30",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-12",
+    "location": "Restauracja A",
+    "start": "11:30",
+    "end": "17:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-12",
+    "location": "Restauracja A",
+    "start": "12:00",
+    "end": "18:30",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-12",
+    "location": "Restauracja A",
+    "start": "12:00",
+    "end": "20:00",
+    "demand": 1,
+    "needs_experienced": false
+  },
+  {
+    "date": "2025-10-12",
+    "location": "Restauracja A",
+    "start": "13:00",
+    "end": "20:30",
+    "demand": 1,
+    "needs_experienced": false
+  }
+]
