@@ -89,6 +89,7 @@ class CompanyUserListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsManager]
     filter_backends = [filters.SearchFilter]
     search_fields = ['email', 'first_name', 'last_name']
+    #no
 
     def get_queryset(self):
         # Zwraca tylko użytkowników z firmy zalogowanego użytkownika
