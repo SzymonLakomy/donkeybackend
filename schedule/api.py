@@ -10,7 +10,7 @@ from .schemas import BulkAvailabilityIn, AvailabilityOut
 from donkeybackend.security import DRFJWTAuth
 
 api = Router(tags=["schedule"], auth=DRFJWTAuth())
-
+#api = Router(tags=["schedule"])
 
 def _norm_hhmm(s: str) -> str:
     if not s:
@@ -21,19 +21,63 @@ def _norm_hhmm(s: str) -> str:
         return f"{int(hh):02d}:{int(mm):02d}"
     return f"{int(s):02d}:00"
 
+def _as_mapping(x) -> dict | None:
+    """Return a dict-like mapping for Slot input x (dict or Pydantic model)."""
+    if x is None:
+        return None
+    if isinstance(x, dict):
+        return x
+    # Pydantic v2 BaseModel
+    if hasattr(x, "model_dump") and callable(getattr(x, "model_dump")):
+        try:
+            return x.model_dump()
+        except Exception:
+            pass
+    # Pydantic v1 BaseModel
+    if hasattr(x, "dict") and callable(getattr(x, "dict")):
+        try:
+            return x.dict()
+        except Exception:
+            pass
+    # Fallback to attributes
+    if hasattr(x, "__dict__"):
+        return {
+            k: getattr(x, k) for k in ("start", "end") if hasattr(x, k)
+        }
+    return None
+
+
 def _coerce_slots(val) -> list[dict]:
+    """
+    Accepts:
+      - None
+      - {start,end} or SlotIn
+      - [{start,end}, ...] or [SlotIn, ...]
+    Returns list of normalized slot dicts.
+    """
     if val is None:
         return []
-    if isinstance(val, dict):
-        start = _norm_hhmm(val.get("start", ""))
-        end   = _norm_hhmm(val.get("end", ""))
+
+    # Single object case (dict or model)
+    m = _as_mapping(val)
+    if isinstance(m, dict) and ("start" in m or "end" in m):
+        start = _norm_hhmm(str(m.get("start", "")))
+        end   = _norm_hhmm(str(m.get("end", "")))
         return [{"start": start, "end": end}] if start and end else []
+
     out = []
-    for x in val:
-        start = _norm_hhmm(x.get("start", ""))
-        end   = _norm_hhmm(x.get("end", ""))
-        if start and end:
-            out.append({"start": start, "end": end})
+    # Iterable case
+    try:
+        for x in (val or []):
+            mx = _as_mapping(x) or {}
+            start = _norm_hhmm(str(mx.get("start", "")))
+            end   = _norm_hhmm(str(mx.get("end", "")))
+            if start and end:
+                out.append({"start": start, "end": end})
+    except TypeError:
+        # Not iterable and not a single mapping -> treat as empty
+        return []
+
     return out
 
 def _validate_slots(slots: list[dict]) -> list[dict]:
