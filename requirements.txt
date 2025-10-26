@@ -17,3 +17,4 @@ psycopg2-binary
 jsonschema~=4.24.0
 openai~=2.4.0
 ortools~=9.14.6206
+django-ninja~=1.1.0

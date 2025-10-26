@@ -59,6 +59,10 @@ class CompanySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CompanyCodeSerializer(serializers.Serializer):
+    company_code = serializers.CharField()
+
+
 class UserRegisterSerializer(serializers.ModelSerializer):
     company_code = serializers.CharField(write_only=True)
 

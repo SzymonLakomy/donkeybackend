@@ -39,10 +39,18 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 
 APPEND_SLASH = False
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS = [
+    "http://localhost",
     "http://localhost:3000",
-'localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443'
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+    "http://[::1]",
+    "http://[::1]:3000",
+    "https://donkey.todayautomate.com",
+    "https://donkeyfrontend.vercel.app",
+    "http://141.145.204.102",
 ]
+
 
 
 # Application definition
@@ -59,6 +67,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'drf_spectacular',
+    'schedule',
 
 ]
 

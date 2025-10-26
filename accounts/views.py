@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 
 from .models import gen_company_code, User, Position
 from .permissions import IsManager, IsManagerForOwnCompany, CannotPromoteToOwner
@@ -18,6 +19,7 @@ from .serializers import (
     PositionSerializer,
     UserListSerializer,
     UserDetailSerializer,
+    CompanyCodeSerializer,
 )
 
 class RegisterCompanyView(generics.CreateAPIView):
@@ -48,7 +50,9 @@ class LoginView(TokenObtainPairView):
 
 class CompanyCodeView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CompanyCodeSerializer
 
+    @extend_schema(responses=CompanyCodeSerializer)
     def get(self, request):
         company = request.user.company
         return Response({"company_code": company.code})
@@ -56,7 +60,9 @@ class CompanyCodeView(APIView):
 
 class CompanyCodeResetView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CompanyCodeSerializer
 
+    @extend_schema(request=None, responses=CompanyCodeSerializer)
     def post(self, request):
         company = request.user.company
         # Wygeneruj nowy, unikalny kod
@@ -72,6 +78,7 @@ class PositionViewSet(viewsets.ModelViewSet):
     API endpoint dla zarządzania stanowiskami w firmie.
     Tylko menedżerowie i właściciele mają dostęp.
     """
+    queryset = Position.objects.all()
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated, IsManager]
     filter_backends = [filters.SearchFilter]
