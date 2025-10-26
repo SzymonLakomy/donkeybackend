@@ -95,7 +95,33 @@ def _validate_slots(slots: list[dict]) -> list[dict]:
 
 
 
-@api.post("/availability/bulk", response=List[AvailabilityOut])
+@api.post(
+    "/availability/bulk",
+    response=List[AvailabilityOut],
+    openapi_extra={
+        "summary": "Upsert availability for one employee (bulk by days)",
+        "description": "Request body is a single object with employee context and an 'availabilities' array. The legacy doc that showed a root-level array is incorrect.",
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "employee_id": 9,
+                        "employee_name": "test2",
+                        "experienced": False,
+                        "hours_min": 0,
+                        "hours_max": 1000000000,
+                        "availabilities": [
+                            {"date": "2025-10-20", "available_slots": {"start": "03:00", "end": "16:00"}},
+                            {"date": "2025-10-21", "available_slots": None},
+                            {"date": "2025-10-24", "available_slots": {"start": "14:00", "end": "20:30"}}
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
 @transaction.atomic
 def upsert_availability_bulk(request, payload: BulkAvailabilityIn):
     if not request.user or not request.user.is_authenticated:

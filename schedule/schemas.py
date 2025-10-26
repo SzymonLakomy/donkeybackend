@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from ninja import Schema
 
 class SlotIn(Schema):
@@ -12,7 +12,7 @@ class DailyAvailabilityIn(Schema):
     available_slots: Optional[Union[SlotIn, List[SlotIn], None]] = None
 
 class BulkAvailabilityIn(Schema):
-    employee_id: object                  # liczba/tekst – rzutujemy na str
+    employee_id: Any                  # liczba/tekst – rzutujemy na str
     employee_name: Optional[str] = ""
     experienced: Optional[bool] = False
     hours_min: Optional[int] = 0
