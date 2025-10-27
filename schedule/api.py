@@ -162,7 +162,7 @@ def upsert_availability_bulk(request, payload: BulkAvailabilityIn):
 @api.get("/availability")
 def list_availability(
     request,
-    employee_id: str | None = None,
+    employee_id: str,
     date_from: date_type | None = None,
     date_to: date_type | None = None,
     only_with_slots: bool = False,
@@ -175,8 +175,7 @@ def list_availability(
     limit = max(1, min(limit, 200))
     qs = Availability.objects.all().order_by("date", "employee_id")
 
-    if employee_id:
-        qs = qs.filter(employee_id=str(employee_id))
+    qs = qs.filter(employee_id=str(employee_id))
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:
