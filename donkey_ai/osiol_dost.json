@@ -1,0 +1,2018 @@
+[
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-01",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-02",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-03",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-04",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-05",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-09-29",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-01",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-02",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-03",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-09-29",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "16:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-03",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "16:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-04",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-05",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-09-29",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-01",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-02",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-03",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-04",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-05",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-02",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-03",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-04",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-05",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-09-29",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-09-29",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-09-30",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-01",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-02",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-04",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-05",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-08",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "19:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-12",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-08",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-08",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-11",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-12",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "17:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-08",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-11",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-12",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-06",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-07",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-11",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-09",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-10",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-11",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-12",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "19:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "19:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-15",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "monika_baron",
+    "employee_name": "Monika Baron",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-15",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "16:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "13:30",
+        "end": "20:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:45",
+        "end": "15:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-15",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "17:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "ola",
+    "employee_name": "Ola",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:30",
+        "end": "20:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-15",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-13",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-14",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-16",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-17",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "milena",
+    "employee_name": "Milena",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "19:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "julka",
+    "employee_name": "Julka",
+    "date": "2025-10-18",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "julka",
+    "employee_name": "Julka",
+    "date": "2025-10-19",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-20",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "karina",
+    "employee_name": "Karina",
+    "date": "2025-10-21",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-20",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-22",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-23",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-24",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "10:30",
+        "end": "18:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-25",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "valeriia",
+    "employee_name": "Valeriia",
+    "date": "2025-10-26",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-20",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "16:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-21",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "17:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-24",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "15:00"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-25",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "justyna",
+    "employee_name": "Justyna",
+    "date": "2025-10-26",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "julka",
+    "employee_name": "Julka",
+    "date": "2025-10-21",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "16:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "julka",
+    "employee_name": "Julka",
+    "date": "2025-10-24",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "16:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-20",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-21",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "16:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-22",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-23",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-24",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "15:30",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-25",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "anastazja",
+    "employee_name": "Anastazja",
+    "date": "2025-10-26",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "12:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-20",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-22",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-24",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-25",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "14:00",
+        "end": "20:30"
+      }
+    ]
+  },
+  {
+    "employee_id": "asia",
+    "employee_name": "Asia",
+    "date": "2025-10-26",
+    "experienced": false,
+    "hours_min": 0,
+    "hours_max": 1000000000,
+    "available_slots": [
+      {
+        "start": "11:00",
+        "end": "20:30"
+      }
+    ]
+  }
+]

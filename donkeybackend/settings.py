@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import os
 
+from corsheaders.defaults import default_headers
 from django.conf import settings
 from dotenv import load_dotenv
 from urllib.parse import urlparse, parse_qsl
@@ -31,11 +32,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443']
 
 APPEND_SLASH = False
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+    "http://[::1]",
+    "http://[::1]:3000",
+    "https://donkey.todayautomate.com",
+    "https://donkeyfrontend.vercel.app",
+    "http://141.145.204.102",
+]
+
+
 
 # Application definition
 
@@ -51,10 +67,12 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'drf_spectacular',
+    'schedule',
 
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -66,8 +84,14 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.common.CommonMiddleware',
+]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization",
+    "content-type",
 
 ]
+
 
 ROOT_URLCONF = 'donkeybackend.urls'
 

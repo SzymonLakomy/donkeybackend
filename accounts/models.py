@@ -19,6 +19,18 @@ class Company(models.Model):
         return f"{self.name} ({self.code})"
 
 
+class Position(models.Model):
+    name = models.CharField(max_length=100)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="positions")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("name", "company")
+
+    def __str__(self):
+        return f"{self.name} ({self.company.code})"
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -36,6 +48,10 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [('owner', 'Owner'), ('manager', 'Manager'), ('employee', 'Employee')]
 
+    position = models.ForeignKey(Position, on_delete=models.SET_NULL, null=True, blank=True, related_name="users")
+    experience_years = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True, null=True)
+
     email = models.EmailField(unique=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True)
     first_name = models.CharField(max_length=100)
@@ -52,3 +68,10 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+        
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"
+
+
+

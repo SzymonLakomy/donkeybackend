@@ -1,0 +1,12 @@
+[
+  { "date": "2025-08-04", "location": "Restauracja A", "start": "12:00", "end": "16:00", "demand": 3, "needs_experienced": true  },
+  { "date": "2025-08-04", "location": "Restauracja B", "start": "14:00", "end": "18:00", "demand": 2, "needs_experienced": true  },
+
+  { "date": "2025-08-05", "location": "Restauracja A", "start": "14:00", "end": "18:00", "demand": 2, "needs_experienced": true  },
+  { "date": "2025-08-05", "location": "Restauracja A", "start": "16:00", "end": "20:00", "demand": 3, "needs_experienced": true  },
+  { "date": "2025-08-05", "location": "Restauracja B", "start": "16:00", "end": "20:00", "demand": 1, "needs_experienced": true  },
+
+  { "date": "2025-08-06", "location": "Restauracja A", "start": "08:00", "end": "12:00", "demand": 1, "needs_experienced": false },
+  { "date": "2025-08-06", "location": "Restauracja A", "start": "12:00", "end": "16:00", "demand": 2, "needs_experienced": false },
+  { "date": "2025-08-06", "location": "Restauracja A", "start": "16:00", "end": "20:00", "demand": 3, "needs_experienced": true  }
+]

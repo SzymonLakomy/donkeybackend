@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
-from .models import User, Company
+from .models import User, Company, Position
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -59,6 +59,10 @@ class CompanySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CompanyCodeSerializer(serializers.Serializer):
+    company_code = serializers.CharField()
+
+
 class UserRegisterSerializer(serializers.ModelSerializer):
     company_code = serializers.CharField(write_only=True)
 
@@ -89,4 +93,83 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["role"]       = user.role
         token["company_id"] = user.company_id
         return token
+
+    def validate(self, attrs):
+        # Use the default validation to get tokens first
+        data = super().validate(attrs)
+        user = self.user
+        data["user"] = {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "full_name": getattr(user, "full_name", f"{user.first_name} {user.last_name}"),
+            "role": user.role,
+            "company_id": user.company_id,
+            "company_name": user.company.name if getattr(user, "company_id", None) else None,
+            "is_active": user.is_active,
+            "is_staff": user.is_staff,
+        }
+        return data
+
+# Nowe serializery dla menedżera
+
+class PositionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Position
+        fields = ['id', 'name', 'created_at']
+        read_only_fields = ['created_at']
+    
+    def create(self, validated_data):
+        # Dodaje company z kontekstu
+        validated_data['company'] = self.context['request'].user.company
+        return super().create(validated_data)
+
+class UserListSerializer(serializers.ModelSerializer):
+    position_name = serializers.CharField(source='position.name', read_only=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 
+            'role', 'is_active', 'is_staff', 'created_at',
+            'position', 'position_name', 'experience_years', 'notes'
+        ]
+        read_only_fields = ['id', 'created_at', 'position_name']
+
+class UserDetailSerializer(serializers.ModelSerializer):
+    position_id = serializers.PrimaryKeyRelatedField(
+        source='position',
+        queryset=Position.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 
+            'role', 'is_active', 'is_staff', 'created_at',
+            'position_id', 'experience_years', 'notes'
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def validate_position_id(self, position):
+        # Sprawdza czy stanowisko należy do tej samej firmy
+        if position and position.company != self.context['request'].user.company:
+            raise serializers.ValidationError("To stanowisko nie należy do Twojej firmy.")
+        return position
+    
+    def validate_role(self, role):
+        # Menedżer nie może nadać roli właściciela
+        if role == 'owner':
+            raise serializers.ValidationError("Nie można przypisać roli właściciela.")
+        # Menedżer może tylko awansować pracownika na menedżera
+        if self.instance and self.instance.role == 'employee' and role == 'manager':
+            return role
+        # Pozostawienie obecnej roli
+        if self.instance and self.instance.role == role:
+            return role
+        # Inne przypadki nie są dozwolone
+        raise serializers.ValidationError("Niedozwolona zmiana roli.")
 
