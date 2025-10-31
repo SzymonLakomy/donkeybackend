@@ -1,16 +1,51 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from django.db import transaction
 from django.utils.timezone import make_aware
 from ninja import Router
 from ninja.errors import HttpError
 from datetime import datetime, date as date_type
+import hashlib
+import json
 
-from .models import Availability
-from .schemas import BulkAvailabilityIn, AvailabilityOut
+from .models import Availability, Demand, ScheduleShift, EventRule, SpecialDay, DayDemandIndex
+from .schemas import (
+    BulkAvailabilityIn,
+    AvailabilityOut,
+    DemandShiftIn,
+    DemandCreateOut,
+    ScheduleFullOut,
+    ScheduleShiftOut,
+    ShiftUpdateIn,
+    ShiftOut,
+    EventRuleIn,
+    EventRuleOut,
+    SpecialDayIn,
+    SpecialDayOut,
+    GenerateDayIn,
+    GenerateRangeIn,
+    GenerateResultOut,
+)
 from donkeybackend.security import DRFJWTAuth
+from .solver import run_solver
 
 api = Router(tags=["schedule"], auth=DRFJWTAuth())
 #api = Router(tags=["schedule"])
+
+def _build_emp_availability(date_from, date_to) -> List[Dict[str, Any]]:
+    qs = Availability.objects.filter(date__gte=date_from, date__lte=date_to)
+    out = []
+    for a in qs:
+        out.append(dict(
+            employee_id=a.employee_id,
+            employee_name=a.employee_name,
+            date=a.date.isoformat(),
+            experienced=bool(a.experienced),
+            hours_min=int(a.hours_min or 0),
+            hours_max=int(a.hours_max or 1_000_000_000),
+            available_slots=list(a.available_slots or []),
+            assigned_shift=a.assigned_shift or None,
+        ))
+    return out
 
 def _norm_hhmm(s: str) -> str:
     if not s:
@@ -201,3 +236,756 @@ def list_availability(
     next_off = offset + limit if offset + limit < count else None
     prev_off = offset - limit if offset > 0 else None
     return {"count": count, "next": next_off, "previous": prev_off, "results": results}
+
+
+# ===================== DEMAND & SCHEDULE =====================
+
+def _hash_payload(obj: Any) -> str:
+    try:
+        s = json.dumps(obj, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        s = str(obj)
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+# ---- Day-level helpers ----
+_DEF_LOC_ATTRS = ("location", "default_location", "restaurant", "org_location")
+
+def _infer_location(request, location_param: Optional[str]) -> str:
+    loc = (location_param or "").strip()
+    if loc:
+        return loc
+    # Try to infer from user if available (best-effort; can be extended later)
+    user = getattr(request, "user", None)
+    if user is not None:
+        for attr in _DEF_LOC_ATTRS:
+            if hasattr(user, attr):
+                v = getattr(user, attr)
+                if v:
+                    return str(v)
+        # JWT claims via DRFJWTAuth could be stored on request.auth
+        auth = getattr(request, "auth", None)
+        if isinstance(auth, dict):
+            for k in ("location", "loc", "restaurant"):
+                if auth.get(k):
+                    return str(auth[k])
+    raise HttpError(400, "Missing location: provide 'location' or ensure user has a default location")
+
+
+def _canonicalize_day_items(items: List[Dict[str, Any]], date_s: str, location: str) -> List[Dict[str, Any]]:
+    canon = []
+    for it in (items or []):
+        start = _norm_hhmm(str(it.get("start", "")))
+        end   = _norm_hhmm(str(it.get("end", "")))
+        if not (start and end):
+            # skip invalid entries silently
+            continue
+        dmd = int(it.get("demand", 0) or 0)
+        ne  = bool(it.get("needs_experienced", False))
+        canon.append({
+            "date": date_s,
+            "location": location,
+            "start": start,
+            "end": end,
+            "demand": dmd,
+            "needs_experienced": ne,
+        })
+    # stable sort for hash
+    canon.sort(key=lambda x: (x["start"], x["end"], x["demand"], x.get("needs_experienced", False)))
+    return canon
+
+
+def _day_hash(date_s: str, location: str, items: List[Dict[str, Any]]) -> str:
+    # items should already be canonicalized and sorted
+    return _hash_payload({"date": date_s, "location": location, "items": items})
+
+
+def _group_payload_by_day_location(items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
+    mp: Dict[tuple, List[Dict[str, Any]]] = {}
+    for it in (items or []):
+        d = str(it.get("date"))
+        loc = str(it.get("location", ""))
+        if not d:
+            # skip
+            continue
+        mp.setdefault((d, loc), []).append(it)
+    return mp
+
+
+def _populate_day_index_for_demand(demand: Demand):
+    try:
+        groups = _group_payload_by_day_location(demand.raw_payload or [])
+        for (d, loc), items in groups.items():
+            canon = _canonicalize_day_items(items, d, loc)
+            h = _day_hash(d, loc, canon)
+            DayDemandIndex.objects.get_or_create(
+                date=d, location=loc, day_hash=h, defaults={"demand": demand}
+            )
+    except Exception:
+        # best-effort; do not fail API if indexing fails
+        pass
+
+
+def _date_range_from_demand(items: List[Dict[str, Any]]) -> tuple[str, str]:
+    dates = sorted({it.get("date") for it in (items or []) if it.get("date")})
+    if not dates:
+        raise HttpError(400, "Demand payload must include at least one item with date")
+    return dates[0], dates[-1]
+
+
+def _shift_uid(demand_id: int, a: Dict[str, Any]) -> str:
+    return f"D{demand_id}|{a['date']}|{a['location']}|{a['start']}-{a['end']}"
+
+
+def _with_ids(demand_id: int, assignments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for a in assignments or []:
+        b = dict(a)
+        b["id"] = _shift_uid(demand_id, a)
+        out.append(b)
+    return out
+
+
+def _assignments_from_db(demand: Demand) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for s in demand.shifts.all().order_by("date", "location", "start", "end"):
+        out.append({
+            "id": s.shift_uid,
+            "date": s.date.isoformat(),
+            "location": s.location,
+            "start": s.start,
+            "end": s.end,
+            "demand": s.demand_count,
+            "assigned_employees": list(s.assigned_employees or []),
+            "needs_experienced": bool(s.needs_experienced),
+            "missing_minutes": int(s.missing_minutes or 0),
+        })
+    return out
+
+
+def _assignments_for_day_from_db(demand: Demand, day: str, location: Optional[str] = None) -> List[Dict[str, Any]]:
+    qs = demand.shifts.filter(date=day)
+    if location:
+        qs = qs.filter(location=location)
+    out: List[Dict[str, Any]] = []
+    for s in qs.order_by("location", "start"):
+        out.append({
+            "id": s.shift_uid,
+            "date": s.date.isoformat(),
+            "location": s.location,
+            "start": s.start,
+            "end": s.end,
+            "demand": s.demand_count,
+            "assigned_employees": list(s.assigned_employees or []),
+            "needs_experienced": bool(s.needs_experienced),
+            "missing_minutes": int(s.missing_minutes or 0),
+        })
+    return out
+
+
+def _get_or_build_day_index(day: str, location: str) -> DayDemandIndex | None:
+    # Try existing index first
+    idx = DayDemandIndex.objects.filter(date=day, location=location).order_by("-id").first()
+    if idx:
+        return idx
+    # Lazy backfill by scanning existing demands in range
+    from datetime import date as _date
+    try:
+        day_dt = _date.fromisoformat(day)
+    except Exception:
+        return None
+    candidates = Demand.objects.filter(date_from__lte=day_dt, date_to__gte=day_dt).order_by("-created_at")
+    for d in candidates:
+        groups = _group_payload_by_day_location(d.raw_payload or [])
+        items = groups.get((day, location))
+        if not items:
+            continue
+        canon = _canonicalize_day_items(items, day, location)
+        h = _day_hash(day, location, canon)
+        try:
+            idx, _ = DayDemandIndex.objects.get_or_create(date=day, location=location, day_hash=h, defaults={"demand": d})
+            return idx
+        except Exception:
+            # may race; retry fetch
+            idx = DayDemandIndex.objects.filter(date=day, location=location, day_hash=h).order_by("-id").first()
+            if idx:
+                return idx
+    return None
+
+
+@api.post("/demand", response=DemandCreateOut)
+@transaction.atomic
+def create_or_get_demand(request, payload: List[DemandShiftIn], name: Optional[str] = None):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    data = [dict(x) for x in payload]
+    content_hash = _hash_payload(data)
+    start, end = _date_range_from_demand(data)
+    from datetime import date as _date
+    obj, created = Demand.objects.get_or_create(
+        content_hash=content_hash,
+        defaults=dict(name=name or "", raw_payload=data, date_from=_date.fromisoformat(start), date_to=_date.fromisoformat(end))
+    )
+    # If name provided later, gently update name if empty
+    if name and not obj.name:
+        obj.name = name
+        obj.save(update_fields=["name", "updated_at"])
+    # Populate day-level index for idempotent daily lookups
+    _populate_day_index_for_demand(obj)
+    return dict(demand_id=obj.id, date_from=str(obj.date_from), date_to=str(obj.date_to), content_hash=obj.content_hash, name=obj.name)
+
+
+@api.get("/demand/{demand_id}")
+def get_demand(request, demand_id: int) -> Dict[str, Any]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        d = Demand.objects.get(id=demand_id)
+    except Demand.DoesNotExist:
+        raise HttpError(404, "Demand not found")
+    return dict(
+        id=d.id,
+        name=d.name,
+        date_from=str(d.date_from),
+        date_to=str(d.date_to),
+        schedule_generated=bool(d.schedule_generated),
+        count=len(d.raw_payload or []),
+        payload=d.raw_payload,
+    )
+
+
+@api.get("/demands")
+def list_demands(request, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    limit = max(1, min(200, limit))
+    qs = Demand.objects.all().order_by("-created_at")
+    count = qs.count()
+    items = list(qs[offset: offset + limit])
+    out = [dict(id=o.id, name=o.name, date_from=str(o.date_from), date_to=str(o.date_to), schedule_generated=o.schedule_generated, created_at=o.created_at.isoformat()) for o in items]
+    next_off = offset + limit if offset + limit < count else None
+    prev_off = offset - limit if offset > 0 else None
+    return {"count": count, "next": next_off, "previous": prev_off, "results": out}
+
+
+def _apply_special_rules_to_demand(items: List[Dict[str, Any]], date_from, date_to) -> List[Dict[str, Any]]:
+    """Apply SpecialDay/EventRule transformations to incoming demand items without mutating originals.
+    - Exact (date+location) rules take precedence; then wildcard (date+"") rules are applied if present.
+    - Multiple rules for the same key are applied in creation order.
+    """
+    import math
+    # Preload active special days + rules within range
+    sd_qs = SpecialDay.objects.select_related("rule").filter(
+        active=True,
+        date__gte=date_from,
+        date__lte=date_to,
+        rule__active=True,
+    ).order_by("created_at", "id")
+
+    # Build mapping: (date_iso, location) -> [rule,...]; wildcard stored with location ""
+    map_by_key: dict[tuple[str, str], list] = {}
+    for sd in sd_qs:
+        k = (sd.date.isoformat(), (sd.location or ""))
+        map_by_key.setdefault(k, []).append(sd.rule)
+
+    def apply_rules_for(date_s: str, location: str, base_demand: int, needs_exp: bool) -> tuple[int, bool]:
+        # Gather rules: exact first, then wildcard
+        rules = []
+        exact = map_by_key.get((date_s, location or ""), [])
+        wildcard = map_by_key.get((date_s, ""), [])
+        # exact should override wildcard precedence; we apply wildcard first, then exact
+        rules.extend(wildcard)
+        rules.extend(exact)
+        d_val = int(base_demand)
+        nexp = bool(needs_exp)
+        for r in rules:
+            if r.mode == r.MODE_OVERRIDE:
+                try:
+                    d_val = int(round(r.value))
+                except Exception:
+                    d_val = int(r.value)
+            else:  # multiplier
+                try:
+                    d_val = int(math.ceil(d_val * float(r.value)))
+                except Exception:
+                    d_val = d_val
+            if r.min_demand is not None:
+                d_val = max(d_val, int(r.min_demand))
+            if r.max_demand is not None:
+                d_val = min(d_val, int(r.max_demand))
+            if r.needs_experienced_default:
+                nexp = True
+        d_val = max(0, int(d_val))
+        return d_val, nexp
+
+    out: List[Dict[str, Any]] = []
+    for it in (items or []):
+        a = dict(it)
+        a_date = a.get("date")
+        a_loc = a.get("location", "")
+        d0 = int(a.get("demand", 0) or 0)
+        n0 = bool(a.get("needs_experienced", False))
+        d_new, n_new = apply_rules_for(str(a_date), str(a_loc), d0, n0)
+        a["demand"] = d_new
+        if n_new:
+            a["needs_experienced"] = True
+        out.append(a)
+    return out
+
+
+def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Ensures schedule is generated for given demand; returns (assignments, summary) where
+    summary contains uncovered/hours_summary when generation occurred. If schedule already existed,
+    summary may be None.
+    """
+    # If shifts already exist and not forcing, return from DB
+    if not force and d.shifts.exists():
+        # ensure index exists (safety)
+        _populate_day_index_for_demand(d)
+        return _assignments_from_db(d), None
+
+    # When forcing, clear existing
+    if force and d.shifts.exists():
+        d.shifts.all().delete()
+
+    # Build availability input from DB for the demand date range
+    avail_qs = Availability.objects.filter(date__gte=d.date_from, date__lte=d.date_to)
+    emp_avail = []
+    for a in avail_qs:
+        emp_avail.append(dict(
+            employee_id=a.employee_id,
+            employee_name=a.employee_name,
+            date=a.date.isoformat(),
+            experienced=bool(a.experienced),
+            hours_min=int(a.hours_min or 0),
+            hours_max=int(a.hours_max or 1_000_000_000),
+            available_slots=list(a.available_slots or []),
+            assigned_shift=a.assigned_shift or None,
+        ))
+
+    # Apply special rules (holidays/events) before solving
+    demand_payload = _apply_special_rules_to_demand(d.raw_payload or [], d.date_from, d.date_to)
+
+    res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+
+    # Persist assignments per day/shift
+    ass = res.get("assignments", []) or []
+    to_create = []
+    from datetime import date as _date
+    for a in ass:
+        uid = _shift_uid(d.id, a)
+        to_create.append(ScheduleShift(
+            demand=d,
+            shift_uid=uid,
+            date=_date.fromisoformat(a["date"]),
+            location=a["location"],
+            start=a["start"],
+            end=a["end"],
+            demand_count=int(a.get("demand", 1)),
+            needs_experienced=bool(a.get("needs_experienced", False)),
+            assigned_employees=list(a.get("assigned_employees", []) or []),
+            missing_minutes=int(a.get("missing_minutes", 0) or 0),
+            meta=dict(uncovered=res.get("uncovered", []), hours_summary=res.get("hours_summary", [])),
+        ))
+    if to_create:
+        ScheduleShift.objects.bulk_create(to_create, ignore_conflicts=True)
+    # Mark generated
+    if to_create:
+        d.schedule_generated = True
+        try:
+            from django.utils import timezone
+            d.solved_at = timezone.now()
+        except Exception:
+            d.solved_at = None
+        d.save(update_fields=["schedule_generated", "solved_at", "updated_at"]) 
+
+    return _assignments_from_db(d), {
+        "uncovered": res.get("uncovered", []),
+        "hours_summary": res.get("hours_summary", []),
+    } if to_create else None
+
+
+@api.get("/schedule/{demand_id}")
+@transaction.atomic
+def get_or_generate_schedule(request, demand_id: int, force: bool = False) -> List[ScheduleShiftOut]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        d = Demand.objects.get(id=demand_id)
+    except Demand.DoesNotExist:
+        raise HttpError(404, "Demand not found")
+
+    assignments, _summary = _ensure_schedule_for_demand(d, force=force)
+    return assignments
+
+
+# ===== Rules (EventRule) =====
+@api.post("/rules", response=EventRuleOut)
+@transaction.atomic
+def create_rule(request, payload: EventRuleIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if payload.mode not in (EventRule.MODE_OVERRIDE, EventRule.MODE_MULTIPLIER):
+        raise HttpError(400, "Invalid mode: must be 'override' or 'multiplier'")
+    obj = EventRule.objects.create(
+        name=payload.name,
+        mode=payload.mode,
+        value=float(payload.value),
+        needs_experienced_default=bool(payload.needs_experienced_default or False),
+        min_demand=payload.min_demand,
+        max_demand=payload.max_demand,
+        active=bool(payload.active if payload.active is not None else True),
+    )
+    return dict(
+        id=obj.id,
+        name=obj.name,
+        mode=obj.mode,
+        value=float(obj.value),
+        needs_experienced_default=bool(obj.needs_experienced_default),
+        min_demand=obj.min_demand,
+        max_demand=obj.max_demand,
+        active=bool(obj.active),
+    )
+
+
+@api.get("/rules")
+def list_rules(request) -> List[EventRuleOut]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    qs = EventRule.objects.all().order_by("name", "id")
+    return [
+        dict(
+            id=o.id,
+            name=o.name,
+            mode=o.mode,
+            value=float(o.value),
+            needs_experienced_default=bool(o.needs_experienced_default),
+            min_demand=o.min_demand,
+            max_demand=o.max_demand,
+            active=bool(o.active),
+        ) for o in qs
+    ]
+
+
+@api.get("/rules/{rule_id}", response=EventRuleOut)
+def get_rule(request, rule_id: int):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        o = EventRule.objects.get(id=rule_id)
+    except EventRule.DoesNotExist:
+        raise HttpError(404, "Rule not found")
+    return dict(
+        id=o.id,
+        name=o.name,
+        mode=o.mode,
+        value=float(o.value),
+        needs_experienced_default=bool(o.needs_experienced_default),
+        min_demand=o.min_demand,
+        max_demand=o.max_demand,
+        active=bool(o.active),
+    )
+
+
+# ===== Special days =====
+@api.post("/special-days", response=SpecialDayOut)
+@transaction.atomic
+def create_special_day(request, payload: SpecialDayIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        rule = EventRule.objects.get(id=payload.rule_id)
+    except EventRule.DoesNotExist:
+        raise HttpError(400, "Invalid rule_id")
+    obj, created = SpecialDay.objects.get_or_create(
+        date=payload.date,
+        location=(payload.location or ""),
+        rule=rule,
+        defaults=dict(note=payload.note or "", active=bool(payload.active if payload.active is not None else True))
+    )
+    # If exists, update note/active
+    if not created:
+        obj.note = payload.note or obj.note
+        if payload.active is not None:
+            obj.active = bool(payload.active)
+        obj.save(update_fields=["note", "active", "updated_at"])
+    return dict(
+        id=obj.id,
+        date=obj.date.isoformat(),
+        location=obj.location or "",
+        rule_id=obj.rule_id,
+        rule_name=obj.rule.name,
+        note=obj.note,
+        active=bool(obj.active),
+    )
+
+
+@api.get("/special-days")
+def list_special_days(request, date_from: date_type | None = None, date_to: date_type | None = None, location: str | None = None) -> List[SpecialDayOut]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    qs = SpecialDay.objects.select_related("rule").all()
+    if date_from:
+        qs = qs.filter(date__gte=date_from)
+    if date_to:
+        qs = qs.filter(date__lte=date_to)
+    if location is not None:
+        qs = qs.filter(location=(location or ""))
+    qs = qs.order_by("-date", "location")
+    return [
+        dict(
+            id=o.id,
+            date=o.date.isoformat(),
+            location=o.location or "",
+            rule_id=o.rule_id,
+            rule_name=o.rule.name,
+            note=o.note,
+            active=bool(o.active),
+        ) for o in qs
+    ]
+
+
+# ===== Day-level convenience endpoints =====
+@api.get("/days/{day}")
+@transaction.atomic
+def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[ScheduleShiftOut]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    loc = _infer_location(request, location)
+    # If we already have persisted shifts for that date/location across any demand, return them
+    shifts_qs = ScheduleShift.objects.filter(date=day, location=loc)
+    if shifts_qs.exists():
+        return [
+            dict(
+                id=s.shift_uid,
+                date=s.date.isoformat(),
+                location=s.location,
+                start=s.start,
+                end=s.end,
+                demand=s.demand_count,
+                assigned_employees=list(s.assigned_employees or []),
+                needs_experienced=bool(s.needs_experienced),
+                missing_minutes=int(s.missing_minutes or 0),
+            ) for s in shifts_qs.order_by("start", "end")
+        ]
+    # No persisted shifts — try to find a weekly demand through DayDemandIndex
+    idx = _get_or_build_day_index(day, loc)
+    if not idx:
+        # Nothing known for this date/location
+        return []
+    d = idx.demand
+    assignments, _summary = _ensure_schedule_for_demand(d, force=False)
+    # filter to that day/location
+    return _assignments_for_day_from_db(d, day, location=loc)
+
+
+@api.post("/generate-day", response=GenerateResultOut)
+@transaction.atomic
+def generate_day(request, payload: GenerateDayIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    loc = _infer_location(request, payload.location)
+    day = payload.date
+    # Canonicalize items – if provided
+    if payload.items:
+        raw_items = [dict(x) for x in payload.items]
+        # allow items missing date/location; enforce both
+        canon_items = _canonicalize_day_items(raw_items, day, loc)
+    else:
+        # No items — for teraz wymagamy items (lub w przyszłości: template)
+        raise HttpError(400, "Missing 'items': provide list of shifts for the day or configure templates")
+
+    h = _day_hash(day, loc, canon_items)
+
+    # Try reuse existing weekly demand via DayDemandIndex
+    idx = DayDemandIndex.objects.filter(date=day, location=loc, day_hash=h).order_by("-id").first()
+    if idx:
+        d = idx.demand
+        if payload.persist is False:
+            # compute ad-hoc for this day, do not persist
+            emp_avail = _build_emp_availability(d.date_from, d.date_to)
+            # Apply special rules only to day items
+            from datetime import date as _date
+            d_from = _date.fromisoformat(day)
+            d_to = _date.fromisoformat(day)
+            demand_payload = _apply_special_rules_to_demand(canon_items, d_from, d_to)
+            res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+            return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
+        # ensure schedule persisted
+        assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
+        # return only that day/location
+        return dict(demand_id=d.id, assignments=_assignments_for_day_from_db(d, day, location=loc), summary=summary)
+
+    # No index found — create a dedicated one-day Demand (idempotent via hash of canon_items)
+    content_hash = _hash_payload(canon_items)
+    from datetime import date as _date
+    d_from = _date.fromisoformat(day)
+    d_to = _date.fromisoformat(day)
+    d, created = Demand.objects.get_or_create(
+        content_hash=content_hash,
+        defaults=dict(name=f"{day} {loc}", raw_payload=canon_items, date_from=d_from, date_to=d_to)
+    )
+    _populate_day_index_for_demand(d)
+
+    if payload.persist is False:
+        emp_avail = _build_emp_availability(d_from, d_to)
+        demand_payload = _apply_special_rules_to_demand(canon_items, d_from, d_to)
+        res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+        return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
+
+    assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
+    return dict(demand_id=d.id, assignments=_assignments_for_day_from_db(d, day, location=loc), summary=summary)
+
+
+@api.post("/generate-range", response=GenerateResultOut)
+@transaction.atomic
+def generate_range(request, payload: GenerateRangeIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    loc = _infer_location(request, payload.location)
+    if not payload.items or len(payload.items) == 0:
+        raise HttpError(400, "Missing 'items' template to expand across the date range")
+    # Expand items for each day in range
+    from datetime import date as _date, timedelta
+    try:
+        start = _date.fromisoformat(payload.date_from)
+        end = _date.fromisoformat(payload.date_to)
+    except Exception:
+        raise HttpError(400, "Invalid date_from/date_to format")
+    if end < start:
+        raise HttpError(400, "date_to must be >= date_from")
+    template_items = [dict(x) for x in payload.items]
+    full_items: List[Dict[str, Any]] = []
+    cur = start
+    while cur <= end:
+        day_s = cur.isoformat()
+        # build canon for the day using templates (they may omit needs_experienced)
+        day_canon = _canonicalize_day_items(template_items, day_s, loc)
+        full_items.extend(day_canon)
+        cur += timedelta(days=1)
+
+    # Create/find Demand for full range (idempotent via content hash)
+    content_hash = _hash_payload(full_items)
+    d, created = Demand.objects.get_or_create(
+        content_hash=content_hash,
+        defaults=dict(name=f"{start.isoformat()}..{end.isoformat()} {loc}", raw_payload=full_items, date_from=start, date_to=end)
+    )
+    # Populate day index mapping
+    _populate_day_index_for_demand(d)
+
+    if payload.persist is False:
+        # Compute ad-hoc without persisting
+        emp_avail = _build_emp_availability(start, end)
+        demand_payload = _apply_special_rules_to_demand(full_items, start, end)
+        res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+        return dict(demand_id=d.id, assignments=res.get("assignments", []), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
+
+    assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
+    return dict(demand_id=d.id, assignments=assignments, summary=summary)
+
+
+@api.get("/schedule/{demand_id}/day/{day}")
+def get_schedule_day(request, demand_id: int, day: str) -> List[ScheduleShiftOut]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        d = Demand.objects.get(id=demand_id)
+    except Demand.DoesNotExist:
+        raise HttpError(404, "Demand not found")
+    dsh = d.shifts.filter(date=day)
+    return [
+        {
+            "id": s.shift_uid,
+            "date": s.date.isoformat(),
+            "location": s.location,
+            "start": s.start,
+            "end": s.end,
+            "demand": s.demand_count,
+            "assigned_employees": list(s.assigned_employees or []),
+            "needs_experienced": bool(s.needs_experienced),
+            "missing_minutes": int(s.missing_minutes or 0),
+        }
+        for s in dsh.order_by("location", "start")
+    ]
+
+
+@api.get("/schedule/shift/{shift_id}", response=ShiftOut)
+def get_shift(request, shift_id: str):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        s = ScheduleShift.objects.get(shift_uid=shift_id)
+    except ScheduleShift.DoesNotExist:
+        raise HttpError(404, "Shift not found")
+    return dict(
+        id=s.shift_uid,
+        date=s.date.isoformat(),
+        location=s.location,
+        start=s.start,
+        end=s.end,
+        demand=s.demand_count,
+        assigned_employees=list(s.assigned_employees or []),
+        needs_experienced=bool(s.needs_experienced),
+        missing_minutes=int(s.missing_minutes or 0),
+        confirmed=bool(s.confirmed),
+        user_edited=bool(s.user_edited),
+    )
+
+
+@api.post("/schedule/shift", response=ShiftOut)
+@transaction.atomic
+def upsert_shift(request, payload: ShiftUpdateIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    # Find existing shift by id
+    try:
+        s = ScheduleShift.objects.get(shift_uid=payload.id)
+    except ScheduleShift.DoesNotExist:
+        raise HttpError(404, "Shift not found")
+
+    # Update allowed fields
+    fields = []
+    if payload.date:
+        s.date = payload.date
+        fields.append("date")
+    if payload.location:
+        s.location = payload.location
+        fields.append("location")
+    if payload.start:
+        s.start = payload.start
+        fields.append("start")
+    if payload.end:
+        s.end = payload.end
+        fields.append("end")
+    if payload.demand is not None:
+        s.demand_count = int(payload.demand)
+        fields.append("demand_count")
+    if payload.assigned_employees is not None:
+        s.assigned_employees = list(payload.assigned_employees)
+        fields.append("assigned_employees")
+    if payload.needs_experienced is not None:
+        s.needs_experienced = bool(payload.needs_experienced)
+        fields.append("needs_experienced")
+    if payload.missing_minutes is not None:
+        s.missing_minutes = int(payload.missing_minutes)
+        fields.append("missing_minutes")
+    if payload.confirmed is not None:
+        s.confirmed = bool(payload.confirmed)
+        fields.append("confirmed")
+
+    s.user_edited = True
+    fields += ["user_edited", "updated_at"]
+    s.save(update_fields=list(set(fields)))
+
+    return dict(
+        id=s.shift_uid,
+        date=s.date.isoformat(),
+        location=s.location,
+        start=s.start,
+        end=s.end,
+        demand=s.demand_count,
+        assigned_employees=list(s.assigned_employees or []),
+        needs_experienced=bool(s.needs_experienced),
+        missing_minutes=int(s.missing_minutes or 0),
+        confirmed=bool(s.confirmed),
+        user_edited=bool(s.user_edited),
+    )
