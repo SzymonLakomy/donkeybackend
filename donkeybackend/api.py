@@ -2,6 +2,7 @@ from ninja import NinjaAPI
 from django.http import JsonResponse
 from drf_spectacular.generators import SchemaGenerator
 from schedule.api import api as schedule_api
+from calendars.api import api as calendars_api
 
 # Main Ninja API instance for the project
 api = NinjaAPI(
@@ -13,6 +14,7 @@ api = NinjaAPI(
 
 # Mount routers from apps
 api.add_router("/schedule", schedule_api)
+api.add_router("/calendar", calendars_api)
 
 
 def _get_drf_schema_dict() -> dict:

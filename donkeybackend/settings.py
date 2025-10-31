@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'accounts',
     'drf_spectacular',
     'schedule',
+    'calendars',
 
 ]
 
