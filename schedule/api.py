@@ -8,6 +8,7 @@ from datetime import datetime, date as date_type
 import hashlib
 import json
 
+from accounts.models import Company
 from .models import Availability, Demand, ScheduleShift, EventRule, SpecialDay, DayDemandIndex, DefaultDemand
 from .schemas import (
     BulkAvailabilityIn,
@@ -139,8 +140,8 @@ def _validate_slots(slots: list[dict]) -> list[dict]:
     "/availability/bulk",
     response=List[AvailabilityOut],
     openapi_extra={
-        "summary": "Upsert availability for one employee (bulk by days)",
-        "description": "Request body is a single object with employee context and an 'availabilities' array. The legacy doc that showed a root-level array is incorrect.",
+        "summary": "Zapisuję dostępność pracownika",
+        "description": "Przekaż dane pracownika i listę dni. Każdy dzień może mieć okno godzin lub być pusty.",
         "requestBody": {
             "required": True,
             "content": {
@@ -199,7 +200,13 @@ def upsert_availability_bulk(request, payload: BulkAvailabilityIn):
     ]
 
 # ------- GET: lista z filtrami + paginacja -------
-@api.get("/availability")
+@api.get(
+    "/availability",
+    openapi_extra={
+        "summary": "Pobieram dostępność pracownika",
+        "description": "Podaj ID pracownika i zakres dat. Dostaniesz listę dni z zapisanymi godzinami.",
+    },
+)
 def list_availability(
     request,
     employee_id: str,
@@ -254,6 +261,28 @@ def _hash_payload(obj: Any) -> str:
 
 # ---- Day-level helpers ----
 _DEF_LOC_ATTRS = ("location", "default_location", "restaurant", "org_location")
+
+
+def _require_company(request) -> Company:
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        raise HttpError(401, "Brak uprawnień")
+
+    company = getattr(user, "company", None)
+    if company:
+        return company
+
+    auth = getattr(request, "auth", None)
+    if isinstance(auth, dict):
+        for key in ("company_id", "company", "companyId"):
+            comp_val = auth.get(key)
+            if comp_val:
+                try:
+                    return Company.objects.get(id=comp_val)
+                except Company.DoesNotExist:
+                    break
+
+    raise HttpError(400, "Użytkownik nie ma przypisanej firmy")
 
 def _infer_location(request, location_param: Optional[str]) -> str:
     loc = (location_param or "").strip()
@@ -330,9 +359,13 @@ def _strip_day_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _day_hash(date_s: str, location: str, items: List[Dict[str, Any]]) -> str:
+def _day_hash(company_id: Optional[int], date_s: str, location: str, items: List[Dict[str, Any]]) -> str:
     # items should already be canonicalized and sorted
-    return _hash_payload({"date": date_s, "location": location, "items": items})
+    return _hash_payload({"company": company_id or 0, "date": date_s, "location": location, "items": items})
+
+
+def _company_payload_hash(company_id: Optional[int], items: List[Dict[str, Any]]) -> str:
+    return _hash_payload({"company": company_id or 0, "items": items})
 
 
 def _group_payload_by_day_location(items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
@@ -352,9 +385,13 @@ def _populate_day_index_for_demand(demand: Demand):
         groups = _group_payload_by_day_location(demand.raw_payload or [])
         for (d, loc), items in groups.items():
             canon = _canonicalize_day_items(items, d, loc)
-            h = _day_hash(d, loc, canon)
+            h = _day_hash(demand.company_id, d, loc, canon)
             DayDemandIndex.objects.get_or_create(
-                date=d, location=loc, day_hash=h, defaults={"demand": demand}
+                company=demand.company,
+                date=d,
+                location=loc,
+                day_hash=h,
+                defaults={"demand": demand},
             )
     except Exception:
         # best-effort; do not fail API if indexing fails
@@ -411,41 +448,128 @@ def _assignments_for_day_from_db(demand: Demand, day: str, location: Optional[st
     return out
 
 
-def _get_or_build_day_index(day: str, location: str) -> DayDemandIndex | None:
+def _get_or_build_day_index(company: Company, day: str, location: str) -> DayDemandIndex | None:
     # Try existing index first
-    idx = DayDemandIndex.objects.filter(date=day, location=location).order_by("-id").first()
+    idx = (
+        DayDemandIndex.objects.filter(company=company, date=day, location=location)
+        .order_by("-id")
+        .first()
+    )
     if idx:
         return idx
     # Lazy backfill by scanning existing demands in range
     from datetime import date as _date
+
     try:
         day_dt = _date.fromisoformat(day)
     except Exception:
         return None
-    candidates = Demand.objects.filter(date_from__lte=day_dt, date_to__gte=day_dt).order_by("-created_at")
+
+    candidates = (
+        Demand.objects.filter(company=company, date_from__lte=day_dt, date_to__gte=day_dt)
+        .order_by("-created_at")
+    )
     for d in candidates:
         groups = _group_payload_by_day_location(d.raw_payload or [])
         items = groups.get((day, location))
         if not items:
             continue
         canon = _canonicalize_day_items(items, day, location)
-        h = _day_hash(day, location, canon)
+        h = _day_hash(company.id if company else None, day, location, canon)
         try:
-            idx, _ = DayDemandIndex.objects.get_or_create(date=day, location=location, day_hash=h, defaults={"demand": d})
+            idx, _ = DayDemandIndex.objects.get_or_create(
+                company=company,
+                date=day,
+                location=location,
+                day_hash=h,
+                defaults={"demand": d},
+            )
             return idx
         except Exception:
             # may race; retry fetch
-            idx = DayDemandIndex.objects.filter(date=day, location=location, day_hash=h).order_by("-id").first()
+            idx = (
+                DayDemandIndex.objects.filter(
+                    company=company, date=day, location=location, day_hash=h
+                )
+                .order_by("-id")
+                .first()
+            )
             if idx:
                 return idx
     return None
 
 
-def _get_default_template(location: str) -> List[Dict[str, Any]]:
-    obj = DefaultDemand.objects.filter(location=location).first()
-    if not obj:
+def _collect_default_week(company: Company, location: str) -> Dict[int, List[Dict[str, Any]]]:
+    week: Dict[int, List[Dict[str, Any]]] = {}
+    qs = DefaultDemand.objects.filter(company=company, location=location)
+    for obj in qs:
+        try:
+            weekday = int(obj.weekday)
+        except (TypeError, ValueError):
+            continue
+        week[weekday] = _canonicalize_template_items(obj.items or [])
+    return week
+
+
+def _get_default_template(company: Company, location: str, day: Optional[str] = None, weekday: Optional[int] = None) -> List[Dict[str, Any]]:
+    if weekday is None and day:
+        from datetime import date as _date
+
+        try:
+            weekday = _date.fromisoformat(day).weekday()
+        except Exception:
+            weekday = None
+
+    if weekday is None:
         return []
-    return _canonicalize_template_items(obj.items or [])
+
+    week = _collect_default_week(company, location)
+    return week.get(int(weekday), [])
+
+
+def _build_default_week_payload(company: Company, location: str, weekdays: Optional[List[int]] = None) -> Dict[str, Any]:
+    week = _collect_default_week(company, location)
+    selected = weekdays if weekdays is not None else list(range(7))
+    normalized: List[int] = []
+    for w in selected:
+        try:
+            normalized.append(int(w))
+        except (TypeError, ValueError):
+            continue
+    normalized = sorted({w for w in normalized if 0 <= w <= 6})
+    if not normalized:
+        normalized = list(range(7))
+    days_payload: List[Dict[str, Any]] = []
+    for weekday in normalized:
+        items = week.get(weekday, [])
+        days_payload.append(
+            dict(
+                weekday=weekday,
+                items=[DemandSlotOut(**item).dict() for item in items],
+            )
+        )
+
+    last_update = (
+        DefaultDemand.objects.filter(company=company, location=location)
+        .order_by("-updated_at")
+        .values_list("updated_at", flat=True)
+        .first()
+    )
+    if not last_update:
+        last_update = timezone.now()
+
+    return dict(
+        location=location,
+        days=days_payload,
+        updated_at=timezone.localtime(last_update).isoformat(),
+    )
+
+
+def _get_company_demand_or_404(company: Company, demand_id: int) -> Demand:
+    try:
+        return Demand.objects.get(id=demand_id, company=company)
+    except Demand.DoesNotExist:
+        raise HttpError(404, "Nie znaleziono grafiku dla tej firmy")
 
 
 def _update_demand_span(demand: Demand, items: List[Dict[str, Any]]):
@@ -465,9 +589,9 @@ def _update_demand_span(demand: Demand, items: List[Dict[str, Any]]):
         demand.date_to = max(dates)
 
 
-def _clear_day_overrides(day: str, location: str) -> bool:
-    indexes = list(DayDemandIndex.objects.filter(date=day, location=location))
-    extra_idx = _get_or_build_day_index(day, location)
+def _clear_day_overrides(company: Company, day: str, location: str) -> bool:
+    indexes = list(DayDemandIndex.objects.filter(company=company, date=day, location=location))
+    extra_idx = _get_or_build_day_index(company, day, location)
     if extra_idx and all(idx.id != extra_idx.id for idx in indexes if idx.id is not None):
         indexes.append(extra_idx)
     if not indexes:
@@ -479,7 +603,7 @@ def _clear_day_overrides(day: str, location: str) -> bool:
     if index_ids:
         DayDemandIndex.objects.filter(id__in=index_ids).delete()
 
-    for demand in Demand.objects.filter(id__in=demand_ids):
+    for demand in Demand.objects.filter(id__in=demand_ids, company=company):
         original = list(demand.raw_payload or [])
         keep = [
             item
@@ -499,7 +623,7 @@ def _clear_day_overrides(day: str, location: str) -> bool:
 
         demand.raw_payload = keep
         _update_demand_span(demand, keep)
-        demand.content_hash = _hash_payload(keep)
+        demand.content_hash = _company_payload_hash(demand.company_id, keep)
         demand.schedule_generated = False
         demand.save(
             update_fields=[
@@ -517,13 +641,13 @@ def _clear_day_overrides(day: str, location: str) -> bool:
     return touched
 
 
-def _save_day_payload(day: str, location: str, raw_items: List[Dict[str, Any]], allow_template: bool) -> Dict[str, Any]:
+def _save_day_payload(company: Company, day: str, location: str, raw_items: List[Dict[str, Any]], allow_template: bool) -> Dict[str, Any]:
     from datetime import date as _date
 
     if raw_items:
         canon_items = _canonicalize_day_items(raw_items, day, location)
     elif allow_template:
-        template = _get_default_template(location)
+        template = _get_default_template(company, location, day)
         if not template:
             raise HttpError(400, "Brak listy zmian i brak domyślnego zapotrzebowania dla tej restauracji")
         canon_items = _canonicalize_day_items(template, day, location)
@@ -538,18 +662,23 @@ def _save_day_payload(day: str, location: str, raw_items: List[Dict[str, Any]], 
     except Exception:
         raise HttpError(400, "Invalid date format. Użyj YYYY-MM-DD")
 
-    _clear_day_overrides(day, location)
+    _clear_day_overrides(company, day, location)
 
-    content_hash = _day_hash(day, location, canon_items)
+    content_hash = _day_hash(company.id if company else None, day, location, canon_items)
     demand, _created = Demand.objects.get_or_create(
         content_hash=content_hash,
         defaults=dict(
+            company=company,
             name="",
             raw_payload=canon_items,
             date_from=day_dt,
             date_to=day_dt,
         ),
     )
+
+    if demand.company_id != (company.id if company else None):
+        demand.company = company
+        demand.save(update_fields=["company"])
 
     demand.raw_payload = canon_items
     demand.date_from = day_dt
@@ -559,6 +688,7 @@ def _save_day_payload(day: str, location: str, raw_items: List[Dict[str, Any]], 
     demand.schedule_generated = False
     demand.save(
         update_fields=[
+            "company",
             "raw_payload",
             "date_from",
             "date_to",
@@ -581,8 +711,8 @@ def _save_day_payload(day: str, location: str, raw_items: List[Dict[str, Any]], 
     )
 
 
-def _build_day_response(day: str, location: str) -> Dict[str, Any]:
-    idx = _get_or_build_day_index(day, location)
+def _build_day_response(company: Company, day: str, location: str) -> Dict[str, Any]:
+    idx = _get_or_build_day_index(company, day, location)
     if idx:
         demand = idx.demand
         groups = _group_payload_by_day_location(demand.raw_payload or [])
@@ -592,11 +722,11 @@ def _build_day_response(day: str, location: str) -> Dict[str, Any]:
                 date=day,
                 location=location,
                 items=[DemandSlotOut(**item).dict() for item in _strip_day_items(day_items)],
-                content_hash=_day_hash(day, location, day_items),
+                content_hash=_day_hash(company.id if company else None, day, location, day_items),
                 uses_default=False,
             )
 
-    template = _get_default_template(location)
+    template = _get_default_template(company, location, day)
     if template:
         return dict(
             date=day,
@@ -627,16 +757,14 @@ def _extract_location_from_payload(items: List[Dict[str, Any]]) -> str:
 )
 @transaction.atomic
 def save_day_demand(request, payload: DemandDayIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+    company = _require_company(request)
     loc = _infer_location(request, payload.location)
     day = (payload.date or "").strip()
     if not day:
         raise HttpError(400, "Missing 'date'")
 
     raw_items = [dict(x) for x in (payload.items or [])]
-    return _save_day_payload(day, loc, raw_items, allow_template=True)
+    return _save_day_payload(company, day, loc, raw_items, allow_template=True)
 
 
 @api.get(
@@ -648,15 +776,13 @@ def save_day_demand(request, payload: DemandDayIn):
     },
 )
 def get_day_demand(request, date: str, location: Optional[str] = None) -> Dict[str, Any]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+    company = _require_company(request)
     loc = _infer_location(request, location)
     day = (date or "").strip()
     if not day:
         raise HttpError(400, "Missing 'date'")
 
-    return _build_day_response(day, loc)
+    return _build_day_response(company, day, loc)
 
 
 @api.post(
@@ -686,8 +812,7 @@ def get_day_demand(request, date: str, location: Optional[str] = None) -> Dict[s
 )
 @transaction.atomic
 def save_many_days(request, payload: List[DemandBulkSlotIn]):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     if not payload:
         raise HttpError(400, "Lista zmian jest pusta")
 
@@ -714,7 +839,7 @@ def save_many_days(request, payload: List[DemandBulkSlotIn]):
 
     results: List[Dict[str, Any]] = []
     for day, loc in order:
-        results.append(_save_day_payload(day, loc, grouped[(day, loc)], allow_template=False))
+        results.append(_save_day_payload(company, day, loc, grouped[(day, loc)], allow_template=False))
 
     return results
 
@@ -728,9 +853,7 @@ def save_many_days(request, payload: List[DemandBulkSlotIn]):
     },
 )
 def get_demand_range(request, date_from: str, date_to: str, location: Optional[str] = None) -> List[Dict[str, Any]]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+    company = _require_company(request)
     loc = _infer_location(request, location)
     from datetime import date as _date, timedelta
 
@@ -746,7 +869,7 @@ def get_demand_range(request, date_from: str, date_to: str, location: Optional[s
     out: List[Dict[str, Any]] = []
     cur = start
     while cur <= end:
-        out.append(_build_day_response(cur.isoformat(), loc))
+        out.append(_build_day_response(company, cur.isoformat(), loc))
         cur += timedelta(days=1)
 
     return out
@@ -762,83 +885,97 @@ def get_demand_range(request, date_from: str, date_to: str, location: Optional[s
 )
 @transaction.atomic
 def delete_day_demand(request, date: str, location: Optional[str] = None) -> Dict[str, Any]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+    company = _require_company(request)
     loc = _infer_location(request, location)
     day = (date or "").strip()
     if not day:
         raise HttpError(400, "Missing 'date'")
 
-    _clear_day_overrides(day, loc)
-    return _build_day_response(day, loc)
+    _clear_day_overrides(company, day, loc)
+    return _build_day_response(company, day, loc)
 
 
 @api.post(
     "/demand/default",
     response=DefaultDemandOut,
     openapi_extra={
-        "summary": "Ustaw domyślne zapotrzebowanie",
-        "description": "Zapisuje listę zmian jako domyślne zapotrzebowanie restauracji. Wykorzystujemy je gdy nie podasz własnej listy dla dnia.",
+        "summary": "Ustawiam tygodniowe domyślne zapotrzebowanie",
+        "description": "Podajesz lokalizację i dni tygodnia (0=pn ... 6=nd). Każdy dzień może mieć kilka zmian. Pusta lista zmian usuwa domyślne wpisy.",
     },
 )
 @transaction.atomic
 def save_default_demand(request, payload: DefaultDemandIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+    company = _require_company(request)
     loc = _infer_location(request, payload.location)
-    raw_items = [dict(x) for x in (payload.items or [])]
-    canon = _canonicalize_template_items(raw_items)
-    if not canon:
-        raise HttpError(400, "Lista zmian jest pusta")
+    if payload.days is None:
+        raise HttpError(400, "Podaj listę dni tygodnia")
 
-    obj, created = DefaultDemand.objects.get_or_create(location=loc, defaults={"items": canon})
-    if not created:
-        obj.items = canon
-        obj.save(update_fields=["items", "updated_at"])
+    for day_cfg in payload.days:
+        try:
+            weekday = int(day_cfg.weekday)
+        except (TypeError, ValueError):
+            raise HttpError(400, "weekday musi być liczbą od 0 do 6")
+        if weekday < 0 or weekday > 6:
+            raise HttpError(400, "weekday musi być w zakresie 0-6")
 
-    return dict(
-        location=loc,
-        items=[DemandSlotOut(**item).dict() for item in canon],
-        updated_at=timezone.localtime(obj.updated_at).isoformat(),
-    )
+        raw_items = [dict(x) for x in (day_cfg.items or [])]
+        canon = _canonicalize_template_items(raw_items)
+        qs = DefaultDemand.objects.filter(company=company, location=loc, weekday=weekday)
+        if not canon:
+            qs.delete()
+            continue
+
+        obj, created = DefaultDemand.objects.get_or_create(
+            company=company,
+            location=loc,
+            weekday=weekday,
+            defaults={"items": canon},
+        )
+        if not created:
+            obj.items = canon
+            obj.save(update_fields=["items", "updated_at"])
+
+    # If list empty -> clear all for location
+    if not payload.days:
+        DefaultDemand.objects.filter(company=company, location=loc).delete()
+
+    return _build_default_week_payload(company, loc)
 
 
 @api.get(
     "/demand/default",
     response=DefaultDemandOut,
     openapi_extra={
-        "summary": "Pobierz domyślne zapotrzebowanie",
-        "description": "Zwraca aktualny domyślny zestaw zmian dla restauracji.",
+        "summary": "Pobieram domyślne zapotrzebowanie",
+        "description": "Zwracam cały tydzień (0-6). Możesz podać weekday, aby dostać tylko wybrany dzień.",
     },
 )
-def get_default_demand(request, location: Optional[str] = None):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-
+def get_default_demand(request, location: Optional[str] = None, weekday: Optional[int] = None):
+    company = _require_company(request)
     loc = _infer_location(request, location)
-    template = _get_default_template(loc)
-    if not template:
-        return dict(location=loc, items=[], updated_at=timezone.localtime(timezone.now()).isoformat())
 
-    obj = DefaultDemand.objects.filter(location=loc).first()
-    updated_at = obj.updated_at if obj else timezone.now()
-    return dict(
-        location=loc,
-        items=[DemandSlotOut(**item).dict() for item in template],
-        updated_at=timezone.localtime(updated_at).isoformat(),
-    )
+    weekdays = None
+    if weekday is not None:
+        try:
+            weekdays = [int(weekday)]
+        except (TypeError, ValueError):
+            raise HttpError(400, "weekday musi być liczbą od 0 do 6")
+        if weekdays[0] < 0 or weekdays[0] > 6:
+            raise HttpError(400, "weekday musi być w zakresie 0-6")
+
+    return _build_default_week_payload(company, loc, weekdays)
 
 
-@api.get("/demand/{demand_id}")
+@api.get(
+    "/demand/{demand_id}",
+    openapi_extra={
+        "summary": "Podglądam zapisane zapotrzebowanie",
+        "description": "Zwracam surową listę zmian i zakres dat dla jednego grafiku. * Starszy endpoint, raczej tylko do podglądu.",
+    },
+)
 def get_demand(request, demand_id: int) -> Dict[str, Any]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-    try:
-        d = Demand.objects.get(id=demand_id)
-    except Demand.DoesNotExist:
-        raise HttpError(404, "Demand not found")
+    company = _require_company(request)
+    d = _get_company_demand_or_404(company, demand_id)
     return dict(
         id=d.id,
         location=_extract_location_from_payload(d.raw_payload or []),
@@ -850,12 +987,17 @@ def get_demand(request, demand_id: int) -> Dict[str, Any]:
     )
 
 
-@api.get("/demands")
+@api.get(
+    "/demands",
+    openapi_extra={
+        "summary": "Lista zapisanych grafików",
+        "description": "Paginuje wszystkie zapotrzebowania firmy. * Przy większej liczbie wpisów może być do uproszczenia.",
+    },
+)
 def list_demands(request, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     limit = max(1, min(200, limit))
-    qs = Demand.objects.all().order_by("-created_at")
+    qs = Demand.objects.filter(company=company).order_by("-created_at")
     count = qs.count()
     items = list(qs[offset: offset + limit])
     out = [
@@ -1011,22 +1153,31 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
     } if to_create else None
 
 
-@api.get("/schedule/{demand_id}")
+@api.get(
+    "/schedule/{demand_id}",
+    openapi_extra={
+        "summary": "Pobieram gotowy grafik",
+        "description": "Zwracam listę zmian dla wybranego zapotrzebowania. Użyj force=true, aby wymusić przeliczenie.",
+    },
+)
 @transaction.atomic
 def get_or_generate_schedule(request, demand_id: int, force: bool = False) -> List[ScheduleShiftOut]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-    try:
-        d = Demand.objects.get(id=demand_id)
-    except Demand.DoesNotExist:
-        raise HttpError(404, "Demand not found")
+    company = _require_company(request)
+    d = _get_company_demand_or_404(company, demand_id)
 
     assignments, _summary = _ensure_schedule_for_demand(d, force=force)
     return assignments
 
 
 # ===== Rules (EventRule) =====
-@api.post("/rules", response=EventRuleOut)
+@api.post(
+    "/rules",
+    response=EventRuleOut,
+    openapi_extra={
+        "summary": "Dodaję regułę specjalną",
+        "description": "Tworzę regułę override lub mnożnik na wyjątkowe dni. * Zaawansowane, używaj tylko jeśli naprawdę potrzebujesz.",
+    },
+)
 @transaction.atomic
 def create_rule(request, payload: EventRuleIn):
     if not request.user or not request.user.is_authenticated:
@@ -1054,7 +1205,13 @@ def create_rule(request, payload: EventRuleIn):
     )
 
 
-@api.get("/rules")
+@api.get(
+    "/rules",
+    openapi_extra={
+        "summary": "Lista reguł specjalnych",
+        "description": "Pokazuje wszystkie reguły override/mnożnik. * Raczej opcjonalne narzędzie administracyjne.",
+    },
+)
 def list_rules(request) -> List[EventRuleOut]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -1073,7 +1230,14 @@ def list_rules(request) -> List[EventRuleOut]:
     ]
 
 
-@api.get("/rules/{rule_id}", response=EventRuleOut)
+@api.get(
+    "/rules/{rule_id}",
+    response=EventRuleOut,
+    openapi_extra={
+        "summary": "Pobieram jedną regułę",
+        "description": "Zwracam szczegóły reguły specjalnej. * Starszy endpoint zostawiony głównie do panelu admina.",
+    },
+)
 def get_rule(request, rule_id: int):
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -1094,7 +1258,14 @@ def get_rule(request, rule_id: int):
 
 
 # ===== Special days =====
-@api.post("/special-days", response=SpecialDayOut)
+@api.post(
+    "/special-days",
+    response=SpecialDayOut,
+    openapi_extra={
+        "summary": "Dodaję wyjątkowy dzień",
+        "description": "Przypinam regułę do konkretnej daty i lokalu. * Bardziej zaawansowana opcja, nie dla codziennych zmian.",
+    },
+)
 @transaction.atomic
 def create_special_day(request, payload: SpecialDayIn):
     if not request.user or not request.user.is_authenticated:
@@ -1126,7 +1297,13 @@ def create_special_day(request, payload: SpecialDayIn):
     )
 
 
-@api.get("/special-days")
+@api.get(
+    "/special-days",
+    openapi_extra={
+        "summary": "Lista wyjątkowych dni",
+        "description": "Pokazuje wszystkie dni z przypiętymi regułami. * Do rozważenia czy zostawić w UI.",
+    },
+)
 def list_special_days(request, date_from: date_type | None = None, date_to: date_type | None = None, location: str | None = None) -> List[SpecialDayOut]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -1152,14 +1329,19 @@ def list_special_days(request, date_from: date_type | None = None, date_to: date
 
 
 # ===== Day-level convenience endpoints =====
-@api.get("/days/{day}")
+@api.get(
+    "/days/{day}",
+    openapi_extra={
+        "summary": "Szybki podgląd dnia",
+        "description": "Zwracam wygenerowane zmiany dla daty i lokalu. Jeśli nic nie zapisano, próbuję użyć wzorca.",
+    },
+)
 @transaction.atomic
 def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[ScheduleShiftOut]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     loc = _infer_location(request, location)
     # If we already have persisted shifts for that date/location across any demand, return them
-    shifts_qs = ScheduleShift.objects.filter(date=day, location=loc)
+    shifts_qs = ScheduleShift.objects.filter(date=day, location=loc, demand__company=company)
     if shifts_qs.exists():
         return [
             dict(
@@ -1175,11 +1357,13 @@ def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[
             ) for s in shifts_qs.order_by("start", "end")
         ]
     # No persisted shifts — try to find a weekly demand through DayDemandIndex
-    idx = _get_or_build_day_index(day, loc)
+    idx = _get_or_build_day_index(company, day, loc)
     if not idx:
         # Nothing known for this date/location
         return []
     d = idx.demand
+    if d.company_id != (company.id if company else None):
+        return []
     assignments, _summary = _ensure_schedule_for_demand(d, force=False)
     # filter to that day/location
     return _assignments_for_day_from_db(d, day, location=loc)
@@ -1195,8 +1379,7 @@ def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[
 )
 @transaction.atomic
 def generate_day(request, payload: GenerateDayIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     loc = _infer_location(request, payload.location)
     day = payload.date
     # Canonicalize items – if provided
@@ -1205,17 +1388,23 @@ def generate_day(request, payload: GenerateDayIn):
         # allow items missing date/location; enforce both
         canon_items = _canonicalize_day_items(raw_items, day, loc)
     else:
-        template = _get_default_template(loc)
+        template = _get_default_template(company, loc, day)
         if not template:
             raise HttpError(400, "Brak zapotrzebowania: podaj items albo ustaw domyślną listę zmian")
         canon_items = _canonicalize_day_items(template, day, loc)
 
-    h = _day_hash(day, loc, canon_items)
+    h = _day_hash(company.id if company else None, day, loc, canon_items)
 
     # Try reuse existing weekly demand via DayDemandIndex
-    idx = DayDemandIndex.objects.filter(date=day, location=loc, day_hash=h).order_by("-id").first()
+    idx = (
+        DayDemandIndex.objects.filter(company=company, date=day, location=loc, day_hash=h)
+        .order_by("-id")
+        .first()
+    )
     if idx:
         d = idx.demand
+        if d.company_id != (company.id if company else None):
+            raise HttpError(404, "Brak grafiku dla tej firmy")
         if payload.persist is False:
             # compute ad-hoc for this day, do not persist
             emp_avail = _build_emp_availability(d.date_from, d.date_to)
@@ -1232,14 +1421,23 @@ def generate_day(request, payload: GenerateDayIn):
         return dict(demand_id=d.id, assignments=_assignments_for_day_from_db(d, day, location=loc), summary=summary)
 
     # No index found — create a dedicated one-day Demand (idempotent via hash of canon_items)
-    content_hash = _hash_payload(canon_items)
+    content_hash = _company_payload_hash(company.id if company else None, canon_items)
     from datetime import date as _date
     d_from = _date.fromisoformat(day)
     d_to = _date.fromisoformat(day)
     d, created = Demand.objects.get_or_create(
         content_hash=content_hash,
-        defaults=dict(name=f"{day} {loc}", raw_payload=canon_items, date_from=d_from, date_to=d_to)
+        defaults=dict(
+            company=company,
+            name=f"{day} {loc}",
+            raw_payload=canon_items,
+            date_from=d_from,
+            date_to=d_to,
+        ),
     )
+    if d.company_id != (company.id if company else None):
+        d.company = company
+        d.save(update_fields=["company"])
     _populate_day_index_for_demand(d)
 
     if payload.persist is False:
@@ -1262,15 +1460,12 @@ def generate_day(request, payload: GenerateDayIn):
 )
 @transaction.atomic
 def generate_range(request, payload: GenerateRangeIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     loc = _infer_location(request, payload.location)
     if payload.items and len(payload.items) > 0:
         template_items = [dict(x) for x in payload.items]
     else:
-        template_items = _get_default_template(loc)
-        if not template_items:
-            raise HttpError(400, "Brak zapotrzebowania: podaj items albo ustaw domyślną listę zmian")
+        template_items = None
     # Expand items for each day in range
     from datetime import date as _date, timedelta
     try:
@@ -1284,17 +1479,35 @@ def generate_range(request, payload: GenerateRangeIn):
     cur = start
     while cur <= end:
         day_s = cur.isoformat()
-        # build canon for the day using templates (they may omit needs_experienced)
-        day_canon = _canonicalize_day_items(template_items, day_s, loc)
+        base_items = template_items
+        if base_items is None:
+            base_items = _get_default_template(company, loc, day_s)
+            if not base_items:
+                raise HttpError(400, f"Brak domyślnego zapotrzebowania dla dnia {day_s}")
+        day_canon = _canonicalize_day_items(base_items, day_s, loc)
+        if not day_canon:
+            raise HttpError(400, f"Lista zmian dla {day_s} jest pusta")
         full_items.extend(day_canon)
         cur += timedelta(days=1)
 
+    if not full_items:
+        raise HttpError(400, "Brak zmian do zapisania")
+
     # Create/find Demand for full range (idempotent via content hash)
-    content_hash = _hash_payload(full_items)
+    content_hash = _company_payload_hash(company.id if company else None, full_items)
     d, created = Demand.objects.get_or_create(
         content_hash=content_hash,
-        defaults=dict(name=f"{start.isoformat()}..{end.isoformat()} {loc}", raw_payload=full_items, date_from=start, date_to=end)
+        defaults=dict(
+            company=company,
+            name=f"{start.isoformat()}..{end.isoformat()} {loc}",
+            raw_payload=full_items,
+            date_from=start,
+            date_to=end,
+        ),
     )
+    if d.company_id != (company.id if company else None):
+        d.company = company
+        d.save(update_fields=["company"])
     # Populate day index mapping
     _populate_day_index_for_demand(d)
 
@@ -1309,14 +1522,16 @@ def generate_range(request, payload: GenerateRangeIn):
     return dict(demand_id=d.id, assignments=assignments, summary=summary)
 
 
-@api.get("/schedule/{demand_id}/day/{day}")
+@api.get(
+    "/schedule/{demand_id}/day/{day}",
+    openapi_extra={
+        "summary": "Pobieram grafik konkretnego dnia",
+        "description": "Zwracam wszystkie zmiany wygenerowane w danym grafiku dla tej daty.",
+    },
+)
 def get_schedule_day(request, demand_id: int, day: str) -> List[ScheduleShiftOut]:
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-    try:
-        d = Demand.objects.get(id=demand_id)
-    except Demand.DoesNotExist:
-        raise HttpError(404, "Demand not found")
+    company = _require_company(request)
+    d = _get_company_demand_or_404(company, demand_id)
     dsh = d.shifts.filter(date=day)
     return [
         {
@@ -1334,12 +1549,20 @@ def get_schedule_day(request, demand_id: int, day: str) -> List[ScheduleShiftOut
     ]
 
 
-@api.get("/schedule/shift/{shift_id}", response=ShiftOut)
+@api.get(
+    "/schedule/shift/{shift_id}",
+    response=ShiftOut,
+    openapi_extra={
+        "summary": "Podglądam jedną zmianę",
+        "description": "Zwracam szczegóły zapisanej zmiany według ID.",
+    },
+)
 def get_shift(request, shift_id: str):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     try:
-        s = ScheduleShift.objects.get(shift_uid=shift_id)
+        s = ScheduleShift.objects.select_related("demand").get(
+            shift_uid=shift_id, demand__company=company
+        )
     except ScheduleShift.DoesNotExist:
         raise HttpError(404, "Shift not found")
     return dict(
@@ -1357,14 +1580,22 @@ def get_shift(request, shift_id: str):
     )
 
 
-@api.post("/schedule/shift", response=ShiftOut)
+@api.post(
+    "/schedule/shift",
+    response=ShiftOut,
+    openapi_extra={
+        "summary": "Aktualizuję zmianę",
+        "description": "Pozwala poprawić datę, godziny, liczbę osób i potwierdzenie wybranej zmiany.",
+    },
+)
 @transaction.atomic
 def upsert_shift(request, payload: ShiftUpdateIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+    company = _require_company(request)
     # Find existing shift by id
     try:
-        s = ScheduleShift.objects.get(shift_uid=payload.id)
+        s = ScheduleShift.objects.select_related("demand").get(
+            shift_uid=payload.id, demand__company=company
+        )
     except ScheduleShift.DoesNotExist:
         raise HttpError(404, "Shift not found")
 

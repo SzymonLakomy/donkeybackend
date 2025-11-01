@@ -31,6 +31,13 @@ class Availability(models.Model):
 
 
 class Demand(models.Model):
+    company      = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="demands",
+    )
     name          = models.CharField(max_length=255, blank=True, default="")
     # Original list of demand shifts in donkey_ai format
     raw_payload   = models.JSONField(default=list)
@@ -136,6 +143,13 @@ class SpecialDay(models.Model):
 
 # ===== Day-level idempotency index (map day/location to a Demand by canonical day hash) =====
 class DayDemandIndex(models.Model):
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="day_indexes",
+    )
     demand = models.ForeignKey(Demand, related_name="day_indexes", on_delete=models.CASCADE)
     date = models.DateField(db_index=True)
     location = models.CharField(max_length=255, db_index=True)
@@ -144,26 +158,37 @@ class DayDemandIndex(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("date", "location", "day_hash")
+        unique_together = ("company", "date", "location", "day_hash")
         indexes = [
-            models.Index(fields=["date", "location"]),
-            models.Index(fields=["day_hash"]),
+            models.Index(fields=["company", "date", "location"]),
+            models.Index(fields=["company", "day_hash"]),
         ]
         ordering = ["-date", "location", "-id"]
 
     def __str__(self):
-        return f"DayIndex[{self.date} {self.location} #{self.day_hash[:8]}] -> Demand {self.demand_id}"
+        comp = f"{self.company_id}" if self.company_id else "-"
+        return f"DayIndex[{self.date} {self.location} c={comp} #{self.day_hash[:8]}] -> Demand {self.demand_id}"
 
 
 class DefaultDemand(models.Model):
-    location = models.CharField(max_length=255, unique=True)
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="default_demands",
+    )
+    location = models.CharField(max_length=255)
+    weekday = models.PositiveSmallIntegerField(default=0, help_text="0=poniedziałek ... 6=niedziela")
     items = models.JSONField(default=list)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["location"]
+        unique_together = ("company", "location", "weekday")
+        ordering = ["location", "weekday"]
 
     def __str__(self):
-        return f"DefaultDemand[{self.location}]"
+        comp = f"{self.company_id}" if self.company_id else "-"
+        return f"DefaultDemand[{self.location}#{self.weekday} c={comp}]"

@@ -132,29 +132,39 @@ class SpecialDayOut(Schema):
 
 # ---- Generation helpers ----
 class DemandShiftTemplateIn(Schema):
-    start: str
-    end: str
-    demand: int
+    start: Optional[str] = None
+    end: Optional[str] = None
+    demand: Optional[int] = None
     needs_experienced: Optional[bool] = False
 
 
 class DemandBulkSlotIn(Schema):
     date: str
     location: Optional[str] = None
-    start: str
-    end: str
-    demand: int
+    start: Optional[str] = None
+    end: Optional[str] = None
+    demand: Optional[int] = None
     needs_experienced: Optional[bool] = False
+
+
+class DefaultDemandDayIn(Schema):
+    weekday: int
+    items: List[DemandShiftTemplateIn]
 
 
 class DefaultDemandIn(Schema):
     location: Optional[str] = None
-    items: List[DemandShiftTemplateIn]
+    days: List[DefaultDemandDayIn]
+
+
+class DefaultDemandDayOut(Schema):
+    weekday: int
+    items: List[DemandSlotOut]
 
 
 class DefaultDemandOut(Schema):
     location: str
-    items: List[DemandSlotOut]
+    days: List[DefaultDemandDayOut]
     updated_at: str
 
 class GenerateDayIn(Schema):
