@@ -2,6 +2,17 @@ from datetime import date
 from typing import List, Optional, Union, Any, Dict
 from ninja import Schema
 
+
+class CompanyLocationIn(Schema):
+    name: str
+
+
+class CompanyLocationOut(Schema):
+    id: int
+    name: str
+    created_at: str
+
+
 class SlotIn(Schema):
     start: str
     end: str
@@ -156,12 +167,21 @@ class DefaultDemandBulkIn(Schema):
 class DefaultDemandDayOut(Schema):
     weekday: Optional[int] = None
     items: List[DemandSlotOut]
-    updated_at: str
+    updated_at: Optional[str] = None
 
 
 class DefaultDemandOut(Schema):
     location: str
     defaults: List[DefaultDemandDayOut]
+
+
+class DefaultDemandWeekDayOut(DefaultDemandDayOut):
+    inherited: bool = False
+
+
+class DefaultDemandWeekOut(Schema):
+    location: str
+    defaults: List[DefaultDemandWeekDayOut]
 
 class GenerateDayIn(Schema):
     date: str

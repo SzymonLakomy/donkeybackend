@@ -9,12 +9,15 @@ from schedule.api import (
     save_default_demand,
     save_default_demand_bulk,
     list_locations,
+    create_location,
+    get_default_demand_week,
 )
 from schedule.schemas import (
     DemandShiftTemplateIn,
     DefaultDemandIn,
     DefaultDemandBulkIn,
     DefaultDemandDayIn,
+    CompanyLocationIn,
 )
 
 
@@ -91,9 +94,48 @@ class DefaultDemandTests(TestCase):
         self.assertEqual(DefaultDemand.objects.filter(company=self.company, location="Warehouse").count(), 2)
 
     def test_list_locations_returns_only_company_entries(self):
-        CompanyLocation.objects.create(company=self.company, name="Main")
+        own = CompanyLocation.objects.create(company=self.company, name="Main")
         other_company = Company.objects.create(name="Other", code="OTHER001")
         CompanyLocation.objects.create(company=other_company, name="Shared")
 
-        names = list_locations(self.request)
-        self.assertEqual(names, ["Main"])
+        payload = list_locations(self.request)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["id"], own.id)
+        self.assertEqual(payload[0]["name"], "Main")
+
+    def test_create_location_creates_entry_for_company(self):
+        payload = CompanyLocationIn(name="New Spot")
+
+        response = create_location(self.request, payload)
+
+        self.assertTrue(
+            CompanyLocation.objects.filter(company=self.company, name="New Spot").exists()
+        )
+        self.assertEqual(response["name"], "New Spot")
+        self.assertIn("created_at", response)
+
+    def test_get_default_demand_week_returns_full_week(self):
+        CompanyLocation.objects.create(company=self.company, name="HQ")
+        DefaultDemand.objects.create(
+            company=self.company,
+            location="HQ",
+            weekday=None,
+            items=[{"start": "08:00", "end": "16:00", "demand": 2, "needs_experienced": False}],
+        )
+        DefaultDemand.objects.create(
+            company=self.company,
+            location="HQ",
+            weekday=2,
+            items=[{"start": "10:00", "end": "18:00", "demand": 5, "needs_experienced": True}],
+        )
+
+        response = get_default_demand_week(self.request, location="HQ")
+
+        self.assertEqual(len(response["defaults"]), 7)
+        self.assertEqual([entry["weekday"] for entry in response["defaults"]], list(range(7)))
+
+        defaults = {entry["weekday"]: entry for entry in response["defaults"]}
+        self.assertFalse(defaults[2]["inherited"])
+        self.assertEqual(defaults[2]["items"][0]["demand"], 5)
+        self.assertTrue(defaults[3]["inherited"])
+        self.assertEqual(defaults[3]["items"][0]["demand"], 2)

@@ -3,7 +3,8 @@
 _Podstawowy prefiks wszystkich ścieżek to `/schedule`._
 
 ## Lokalizacje
-- `GET /schedule/locations` – zwraca listę nazw lokalizacji przypisanych do firmy zalogowanego użytkownika. Tylko te lokalizacje, które należą do danej firmy.
+- `GET /schedule/locations` – zwraca listę lokalizacji przypisanych do firmy zalogowanego użytkownika (identyfikator, nazwa, data utworzenia). Tylko te lokalizacje, które należą do danej firmy.
+- `POST /schedule/locations` – tworzy nową lokalizację (restaurację) powiązaną z firmą zalogowanego użytkownika.
 
 ## Dostępności pracowników
 - `POST /schedule/availability/bulk` – zapisuje dostępność jednego pracownika dla wielu dni w jednym żądaniu.
@@ -17,6 +18,7 @@ _Podstawowy prefiks wszystkich ścieżek to `/schedule`._
 - `POST /schedule/demand/default` – zapisuje szablon zmian dla jednego dnia tygodnia (0=poniedziałek … 6=niedziela).
 - `POST /schedule/demand/default/bulk` – zapisuje jednocześnie kilka dni tygodnia wraz z ich listami zmian.
 - `GET /schedule/demand/default` – zwraca wszystkie domyślne szablony dla lokalizacji; można filtrować po `weekday`.
+- `GET /schedule/demand/default/week` – zwraca listę siedmiu dni z domyślnymi zmianami (łącznie z dziedziczeniem ze wzoru ogólnego).
 
 ## Przegląd zapotrzebowań
 - `GET /schedule/demand/{demand_id}` – szczegóły pojedynczego zapotrzebowania (daty, lokalizacja, lista zmian).
