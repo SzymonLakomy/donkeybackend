@@ -33,20 +33,24 @@ class AvailabilityOut(Schema):
     available_slots: List[SlotOut]
 
 # ---- Demand / Schedule ----
-class DemandShiftIn(Schema):
-    date: str            # keep as str (YYYY-MM-DD) to match donkey_ai
-    location: str
+class DemandSlotOut(Schema):
     start: str
     end: str
     demand: int
-    needs_experienced: Optional[bool] = False
+    needs_experienced: bool
 
-class DemandCreateOut(Schema):
-    demand_id: int
-    date_from: str
-    date_to: str
-    content_hash: str
-    name: Optional[str] = None
+
+class DemandDayIn(Schema):
+    date: str
+    location: Optional[str] = None
+    items: Optional[List["DemandShiftTemplateIn"]] = None
+
+
+class DemandDayOut(Schema):
+    date: str
+    location: str
+    items: List[DemandSlotOut]
+    content_hash: Optional[str] = None
 
 class ScheduleShiftOut(Schema):
     id: str
@@ -131,6 +135,17 @@ class DemandShiftTemplateIn(Schema):
     end: str
     demand: int
     needs_experienced: Optional[bool] = False
+
+
+class DefaultDemandIn(Schema):
+    location: Optional[str] = None
+    items: List[DemandShiftTemplateIn]
+
+
+class DefaultDemandOut(Schema):
+    location: str
+    items: List[DemandSlotOut]
+    updated_at: str
 
 class GenerateDayIn(Schema):
     date: str
