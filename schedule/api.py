@@ -297,6 +297,7 @@ def _infer_location(request, location_param: Optional[str]) -> str:
                 if v:
                     return str(v)
         # JWT claims via DRFJWTAuth could be stored on request.auth
+        #
         auth = getattr(request, "auth", None)
         if isinstance(auth, dict):
             for k in ("location", "loc", "restaurant"):
