@@ -153,3 +153,17 @@ class DayDemandIndex(models.Model):
 
     def __str__(self):
         return f"DayIndex[{self.date} {self.location} #{self.day_hash[:8]}] -> Demand {self.demand_id}"
+
+
+class DefaultDemand(models.Model):
+    location = models.CharField(max_length=255, unique=True)
+    items = models.JSONField(default=list)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["location"]
+
+    def __str__(self):
+        return f"DefaultDemand[{self.location}]"

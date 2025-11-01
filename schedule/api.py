@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from django.db import transaction
+from django.utils import timezone
 from django.utils.timezone import make_aware
 from ninja import Router
 from ninja.errors import HttpError
@@ -7,12 +8,16 @@ from datetime import datetime, date as date_type
 import hashlib
 import json
 
-from .models import Availability, Demand, ScheduleShift, EventRule, SpecialDay, DayDemandIndex
+from .models import Availability, Demand, ScheduleShift, EventRule, SpecialDay, DayDemandIndex, DefaultDemand
 from .schemas import (
     BulkAvailabilityIn,
     AvailabilityOut,
-    DemandShiftIn,
-    DemandCreateOut,
+    DemandDayIn,
+    DemandDayOut,
+    DemandSlotOut,
+    DemandBulkSlotIn,
+    DefaultDemandIn,
+    DefaultDemandOut,
     ScheduleFullOut,
     ScheduleShiftOut,
     ShiftUpdateIn,
@@ -294,6 +299,37 @@ def _canonicalize_day_items(items: List[Dict[str, Any]], date_s: str, location: 
     return canon
 
 
+def _canonicalize_template_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    canon = []
+    for it in (items or []):
+        start = _norm_hhmm(str(it.get("start", "")))
+        end = _norm_hhmm(str(it.get("end", "")))
+        if not (start and end):
+            continue
+        dmd = int(it.get("demand", 0) or 0)
+        ne = bool(it.get("needs_experienced", False))
+        canon.append({
+            "start": start,
+            "end": end,
+            "demand": dmd,
+            "needs_experienced": ne,
+        })
+    canon.sort(key=lambda x: (x["start"], x["end"], x["demand"], x.get("needs_experienced", False)))
+    return canon
+
+
+def _strip_day_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for it in items or []:
+        out.append({
+            "start": it.get("start"),
+            "end": it.get("end"),
+            "demand": int(it.get("demand", 0) or 0),
+            "needs_experienced": bool(it.get("needs_experienced", False)),
+        })
+    return out
+
+
 def _day_hash(date_s: str, location: str, items: List[Dict[str, Any]]) -> str:
     # items should already be canonicalized and sorted
     return _hash_payload({"date": date_s, "location": location, "items": items})
@@ -323,13 +359,6 @@ def _populate_day_index_for_demand(demand: Demand):
     except Exception:
         # best-effort; do not fail API if indexing fails
         pass
-
-
-def _date_range_from_demand(items: List[Dict[str, Any]]) -> tuple[str, str]:
-    dates = sorted({it.get("date") for it in (items or []) if it.get("date")})
-    if not dates:
-        raise HttpError(400, "Demand payload must include at least one item with date")
-    return dates[0], dates[-1]
 
 
 def _shift_uid(demand_id: int, a: Dict[str, Any]) -> str:
@@ -412,26 +441,394 @@ def _get_or_build_day_index(day: str, location: str) -> DayDemandIndex | None:
     return None
 
 
-@api.post("/demand", response=DemandCreateOut)
+def _get_default_template(location: str) -> List[Dict[str, Any]]:
+    obj = DefaultDemand.objects.filter(location=location).first()
+    if not obj:
+        return []
+    return _canonicalize_template_items(obj.items or [])
+
+
+def _update_demand_span(demand: Demand, items: List[Dict[str, Any]]):
+    from datetime import date as _date
+
+    dates: List[_date] = []
+    for it in items:
+        ds = str(it.get("date", "")).strip()
+        if not ds:
+            continue
+        try:
+            dates.append(_date.fromisoformat(ds))
+        except Exception:
+            continue
+    if dates:
+        demand.date_from = min(dates)
+        demand.date_to = max(dates)
+
+
+def _clear_day_overrides(day: str, location: str) -> bool:
+    indexes = list(DayDemandIndex.objects.filter(date=day, location=location))
+    extra_idx = _get_or_build_day_index(day, location)
+    if extra_idx and all(idx.id != extra_idx.id for idx in indexes if idx.id is not None):
+        indexes.append(extra_idx)
+    if not indexes:
+        return False
+
+    touched = False
+    demand_ids = {idx.demand_id for idx in indexes if idx.demand_id}
+    index_ids = [idx.id for idx in indexes if idx.id]
+    if index_ids:
+        DayDemandIndex.objects.filter(id__in=index_ids).delete()
+
+    for demand in Demand.objects.filter(id__in=demand_ids):
+        original = list(demand.raw_payload or [])
+        keep = [
+            item
+            for item in original
+            if str(item.get("date", "")) != day or str(item.get("location", "")) != location
+        ]
+
+        if len(keep) == len(original):
+            continue
+
+        touched = True
+        demand.shifts.filter(date=day, location=location).delete()
+
+        if not keep:
+            demand.delete()
+            continue
+
+        demand.raw_payload = keep
+        _update_demand_span(demand, keep)
+        demand.content_hash = _hash_payload(keep)
+        demand.schedule_generated = False
+        demand.save(
+            update_fields=[
+                "raw_payload",
+                "date_from",
+                "date_to",
+                "content_hash",
+                "schedule_generated",
+                "updated_at",
+            ]
+        )
+        DayDemandIndex.objects.filter(demand=demand).delete()
+        _populate_day_index_for_demand(demand)
+
+    return touched
+
+
+def _save_day_payload(day: str, location: str, raw_items: List[Dict[str, Any]], allow_template: bool) -> Dict[str, Any]:
+    from datetime import date as _date
+
+    if raw_items:
+        canon_items = _canonicalize_day_items(raw_items, day, location)
+    elif allow_template:
+        template = _get_default_template(location)
+        if not template:
+            raise HttpError(400, "Brak listy zmian i brak domyślnego zapotrzebowania dla tej restauracji")
+        canon_items = _canonicalize_day_items(template, day, location)
+    else:
+        canon_items = []
+
+    if not canon_items:
+        raise HttpError(400, "Lista zmian jest pusta")
+
+    try:
+        day_dt = _date.fromisoformat(day)
+    except Exception:
+        raise HttpError(400, "Invalid date format. Użyj YYYY-MM-DD")
+
+    _clear_day_overrides(day, location)
+
+    content_hash = _day_hash(day, location, canon_items)
+    demand, _created = Demand.objects.get_or_create(
+        content_hash=content_hash,
+        defaults=dict(
+            name="",
+            raw_payload=canon_items,
+            date_from=day_dt,
+            date_to=day_dt,
+        ),
+    )
+
+    demand.raw_payload = canon_items
+    demand.date_from = day_dt
+    demand.date_to = day_dt
+    demand.content_hash = content_hash
+    demand.name = ""
+    demand.schedule_generated = False
+    demand.save(
+        update_fields=[
+            "raw_payload",
+            "date_from",
+            "date_to",
+            "content_hash",
+            "name",
+            "schedule_generated",
+            "updated_at",
+        ]
+    )
+    demand.shifts.all().delete()
+    DayDemandIndex.objects.filter(demand=demand).delete()
+    _populate_day_index_for_demand(demand)
+
+    return dict(
+        date=day,
+        location=location,
+        items=[DemandSlotOut(**item).dict() for item in _strip_day_items(canon_items)],
+        content_hash=content_hash,
+        uses_default=False,
+    )
+
+
+def _build_day_response(day: str, location: str) -> Dict[str, Any]:
+    idx = _get_or_build_day_index(day, location)
+    if idx:
+        demand = idx.demand
+        groups = _group_payload_by_day_location(demand.raw_payload or [])
+        day_items = _canonicalize_day_items(groups.get((day, location), []), day, location)
+        if day_items:
+            return dict(
+                date=day,
+                location=location,
+                items=[DemandSlotOut(**item).dict() for item in _strip_day_items(day_items)],
+                content_hash=_day_hash(day, location, day_items),
+                uses_default=False,
+            )
+
+    template = _get_default_template(location)
+    if template:
+        return dict(
+            date=day,
+            location=location,
+            items=[DemandSlotOut(**item).dict() for item in template],
+            content_hash=None,
+            uses_default=True,
+        )
+
+    return dict(date=day, location=location, items=[], content_hash=None, uses_default=True)
+
+
+def _extract_location_from_payload(items: List[Dict[str, Any]]) -> str:
+    for it in items or []:
+        loc = (it or {}).get("location")
+        if loc:
+            return str(loc)
+    return ""
+
+
+@api.post(
+    "/demand/day",
+    response=DemandDayOut,
+    openapi_extra={
+        "summary": "Zapisuję zapotrzebowanie na jeden dzień",
+        "description": "Podajesz datę i listę zmian. Gdy lista jest pusta, korzystam z domyślnego wzoru restauracji.",
+    },
+)
 @transaction.atomic
-def create_or_get_demand(request, payload: List[DemandShiftIn], name: Optional[str] = None):
+def save_day_demand(request, payload: DemandDayIn):
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-    data = [dict(x) for x in payload]
-    content_hash = _hash_payload(data)
-    start, end = _date_range_from_demand(data)
-    from datetime import date as _date
-    obj, created = Demand.objects.get_or_create(
-        content_hash=content_hash,
-        defaults=dict(name=name or "", raw_payload=data, date_from=_date.fromisoformat(start), date_to=_date.fromisoformat(end))
+
+    loc = _infer_location(request, payload.location)
+    day = (payload.date or "").strip()
+    if not day:
+        raise HttpError(400, "Missing 'date'")
+
+    raw_items = [dict(x) for x in (payload.items or [])]
+    return _save_day_payload(day, loc, raw_items, allow_template=True)
+
+
+@api.get(
+    "/demand/day",
+    response=DemandDayOut,
+    openapi_extra={
+        "summary": "Pobieram zapotrzebowanie na jeden dzień",
+        "description": "Podajesz datę i (opcjonalnie) lokalizację. Gdy brak własnych zmian zwracam domyślne zapotrzebowanie.",
+    },
+)
+def get_day_demand(request, date: str, location: Optional[str] = None) -> Dict[str, Any]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    day = (date or "").strip()
+    if not day:
+        raise HttpError(400, "Missing 'date'")
+
+    return _build_day_response(day, loc)
+
+
+@api.post(
+    "/demand/many",
+    response=List[DemandDayOut],
+    openapi_extra={
+        "summary": "Zapisuję kilka dni na raz",
+        "description": "Przesyłasz listę zmian z datami. Grupuję je dniami i zapisuję zapotrzebowanie dla każdej daty.",
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "date": "2025-10-06",
+                            "location": "Restauracja A",
+                            "start": "10:30",
+                            "end": "19:30",
+                            "demand": 1,
+                            "needs_experienced": False,
+                        }
+                    ]
+                }
+            },
+        },
+    },
+)
+@transaction.atomic
+def save_many_days(request, payload: List[DemandBulkSlotIn]):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if not payload:
+        raise HttpError(400, "Lista zmian jest pusta")
+
+    grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+    order: List[tuple[str, str]] = []
+
+    for slot in payload:
+        day = (slot.date or "").strip()
+        if not day:
+            raise HttpError(400, "Każdy wpis musi mieć datę")
+        loc = _infer_location(request, slot.location)
+        key = (day, loc)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(
+            {
+                "start": slot.start,
+                "end": slot.end,
+                "demand": slot.demand,
+                "needs_experienced": slot.needs_experienced,
+            }
+        )
+
+    results: List[Dict[str, Any]] = []
+    for day, loc in order:
+        results.append(_save_day_payload(day, loc, grouped[(day, loc)], allow_template=False))
+
+    return results
+
+
+@api.get(
+    "/demand/range",
+    response=List[DemandDayOut],
+    openapi_extra={
+        "summary": "Pobieram zapotrzebowanie dla zakresu dat",
+        "description": "Wystarczy podać datę od i do. Zwracam każdy dzień, wskazując czy to własne czy domyślne zmiany.",
+    },
+)
+def get_demand_range(request, date_from: str, date_to: str, location: Optional[str] = None) -> List[Dict[str, Any]]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    from datetime import date as _date, timedelta
+
+    try:
+        start = _date.fromisoformat((date_from or "").strip())
+        end = _date.fromisoformat((date_to or "").strip())
+    except Exception:
+        raise HttpError(400, "Invalid date range. Użyj formatu YYYY-MM-DD")
+
+    if end < start:
+        raise HttpError(400, "date_to must be >= date_from")
+
+    out: List[Dict[str, Any]] = []
+    cur = start
+    while cur <= end:
+        out.append(_build_day_response(cur.isoformat(), loc))
+        cur += timedelta(days=1)
+
+    return out
+
+
+@api.delete(
+    "/demand/day",
+    response=DemandDayOut,
+    openapi_extra={
+        "summary": "Usuwam zapotrzebowanie na dzień",
+        "description": "Czyści zapisane zmiany dla dnia i wraca do domyślnego wzoru restauracji.",
+    },
+)
+@transaction.atomic
+def delete_day_demand(request, date: str, location: Optional[str] = None) -> Dict[str, Any]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    day = (date or "").strip()
+    if not day:
+        raise HttpError(400, "Missing 'date'")
+
+    _clear_day_overrides(day, loc)
+    return _build_day_response(day, loc)
+
+
+@api.post(
+    "/demand/default",
+    response=DefaultDemandOut,
+    openapi_extra={
+        "summary": "Ustaw domyślne zapotrzebowanie",
+        "description": "Zapisuje listę zmian jako domyślne zapotrzebowanie restauracji. Wykorzystujemy je gdy nie podasz własnej listy dla dnia.",
+    },
+)
+@transaction.atomic
+def save_default_demand(request, payload: DefaultDemandIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, payload.location)
+    raw_items = [dict(x) for x in (payload.items or [])]
+    canon = _canonicalize_template_items(raw_items)
+    if not canon:
+        raise HttpError(400, "Lista zmian jest pusta")
+
+    obj, created = DefaultDemand.objects.get_or_create(location=loc, defaults={"items": canon})
+    if not created:
+        obj.items = canon
+        obj.save(update_fields=["items", "updated_at"])
+
+    return dict(
+        location=loc,
+        items=[DemandSlotOut(**item).dict() for item in canon],
+        updated_at=timezone.localtime(obj.updated_at).isoformat(),
     )
-    # If name provided later, gently update name if empty
-    if name and not obj.name:
-        obj.name = name
-        obj.save(update_fields=["name", "updated_at"])
-    # Populate day-level index for idempotent daily lookups
-    _populate_day_index_for_demand(obj)
-    return dict(demand_id=obj.id, date_from=str(obj.date_from), date_to=str(obj.date_to), content_hash=obj.content_hash, name=obj.name)
+
+
+@api.get(
+    "/demand/default",
+    response=DefaultDemandOut,
+    openapi_extra={
+        "summary": "Pobierz domyślne zapotrzebowanie",
+        "description": "Zwraca aktualny domyślny zestaw zmian dla restauracji.",
+    },
+)
+def get_default_demand(request, location: Optional[str] = None):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    template = _get_default_template(loc)
+    if not template:
+        return dict(location=loc, items=[], updated_at=timezone.localtime(timezone.now()).isoformat())
+
+    obj = DefaultDemand.objects.filter(location=loc).first()
+    updated_at = obj.updated_at if obj else timezone.now()
+    return dict(
+        location=loc,
+        items=[DemandSlotOut(**item).dict() for item in template],
+        updated_at=timezone.localtime(updated_at).isoformat(),
+    )
 
 
 @api.get("/demand/{demand_id}")
@@ -444,7 +841,7 @@ def get_demand(request, demand_id: int) -> Dict[str, Any]:
         raise HttpError(404, "Demand not found")
     return dict(
         id=d.id,
-        name=d.name,
+        location=_extract_location_from_payload(d.raw_payload or []),
         date_from=str(d.date_from),
         date_to=str(d.date_to),
         schedule_generated=bool(d.schedule_generated),
@@ -461,7 +858,17 @@ def list_demands(request, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
     qs = Demand.objects.all().order_by("-created_at")
     count = qs.count()
     items = list(qs[offset: offset + limit])
-    out = [dict(id=o.id, name=o.name, date_from=str(o.date_from), date_to=str(o.date_to), schedule_generated=o.schedule_generated, created_at=o.created_at.isoformat()) for o in items]
+    out = [
+        dict(
+            id=o.id,
+            location=_extract_location_from_payload(o.raw_payload or []),
+            date_from=str(o.date_from),
+            date_to=str(o.date_to),
+            schedule_generated=o.schedule_generated,
+            created_at=o.created_at.isoformat(),
+        )
+        for o in items
+    ]
     next_off = offset + limit if offset + limit < count else None
     prev_off = offset - limit if offset > 0 else None
     return {"count": count, "next": next_off, "previous": prev_off, "results": out}
@@ -778,7 +1185,14 @@ def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[
     return _assignments_for_day_from_db(d, day, location=loc)
 
 
-@api.post("/generate-day", response=GenerateResultOut)
+@api.post(
+    "/generate-day",
+    response=GenerateResultOut,
+    openapi_extra={
+        "summary": "Ułóż grafik na jeden dzień",
+        "description": "Uruchamia solver dla podanej daty. Gdy lista zmian nie jest przesłana korzystamy z domyślnego zapotrzebowania.",
+    },
+)
 @transaction.atomic
 def generate_day(request, payload: GenerateDayIn):
     if not request.user or not request.user.is_authenticated:
@@ -791,8 +1205,10 @@ def generate_day(request, payload: GenerateDayIn):
         # allow items missing date/location; enforce both
         canon_items = _canonicalize_day_items(raw_items, day, loc)
     else:
-        # No items — for teraz wymagamy items (lub w przyszłości: template)
-        raise HttpError(400, "Missing 'items': provide list of shifts for the day or configure templates")
+        template = _get_default_template(loc)
+        if not template:
+            raise HttpError(400, "Brak zapotrzebowania: podaj items albo ustaw domyślną listę zmian")
+        canon_items = _canonicalize_day_items(template, day, loc)
 
     h = _day_hash(day, loc, canon_items)
 
@@ -836,14 +1252,25 @@ def generate_day(request, payload: GenerateDayIn):
     return dict(demand_id=d.id, assignments=_assignments_for_day_from_db(d, day, location=loc), summary=summary)
 
 
-@api.post("/generate-range", response=GenerateResultOut)
+@api.post(
+    "/generate-range",
+    response=GenerateResultOut,
+    openapi_extra={
+        "summary": "Ułóż grafik na kilka dni",
+        "description": "Buduje grafik dla zakresu dat korzystając z podanej listy zmian lub domyślnego zapotrzebowania restauracji.",
+    },
+)
 @transaction.atomic
 def generate_range(request, payload: GenerateRangeIn):
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
     loc = _infer_location(request, payload.location)
-    if not payload.items or len(payload.items) == 0:
-        raise HttpError(400, "Missing 'items' template to expand across the date range")
+    if payload.items and len(payload.items) > 0:
+        template_items = [dict(x) for x in payload.items]
+    else:
+        template_items = _get_default_template(loc)
+        if not template_items:
+            raise HttpError(400, "Brak zapotrzebowania: podaj items albo ustaw domyślną listę zmian")
     # Expand items for each day in range
     from datetime import date as _date, timedelta
     try:
@@ -853,7 +1280,6 @@ def generate_range(request, payload: GenerateRangeIn):
         raise HttpError(400, "Invalid date_from/date_to format")
     if end < start:
         raise HttpError(400, "date_to must be >= date_from")
-    template_items = [dict(x) for x in payload.items]
     full_items: List[Dict[str, Any]] = []
     cur = start
     while cur <= end:
