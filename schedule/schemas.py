@@ -2,6 +2,17 @@ from datetime import date
 from typing import List, Optional, Union, Any, Dict
 from ninja import Schema
 
+
+class CompanyLocationIn(Schema):
+    name: str
+
+
+class CompanyLocationOut(Schema):
+    id: int
+    name: str
+    created_at: str
+
+
 class SlotIn(Schema):
     start: str
     end: str
@@ -62,6 +73,9 @@ class ScheduleShiftOut(Schema):
     assigned_employees: List[str]
     needs_experienced: bool
     missing_minutes: int
+    confirmed: Optional[bool] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[str] = None
 
 class ScheduleFullOut(Schema):
     assignments: List[ScheduleShiftOut]
@@ -92,6 +106,8 @@ class ShiftOut(Schema):
     missing_minutes: int
     confirmed: bool
     user_edited: bool
+    approved_by: Optional[int]
+    approved_at: Optional[str]
 
 # ---- Special events (rules + special days) ----
 class EventRuleIn(Schema):
@@ -156,12 +172,21 @@ class DefaultDemandBulkIn(Schema):
 class DefaultDemandDayOut(Schema):
     weekday: Optional[int] = None
     items: List[DemandSlotOut]
-    updated_at: str
+    updated_at: Optional[str] = None
 
 
 class DefaultDemandOut(Schema):
     location: str
     defaults: List[DefaultDemandDayOut]
+
+
+class DefaultDemandWeekDayOut(DefaultDemandDayOut):
+    inherited: bool = False
+
+
+class DefaultDemandWeekOut(Schema):
+    location: str
+    defaults: List[DefaultDemandWeekDayOut]
 
 class GenerateDayIn(Schema):
     date: str
@@ -178,6 +203,76 @@ class GenerateRangeIn(Schema):
     force: Optional[bool] = False
     items: Optional[List[DemandShiftTemplateIn]] = None  # template repeated for each day
 
+
+class AutoGenerateIn(GenerateRangeIn):
+    send_notifications: Optional[bool] = True
+
+
+class EmployeeRoleIn(Schema):
+    name: str
+    requires_experience: Optional[bool] = False
+    description: Optional[str] = ""
+
+
+class EmployeeRoleOut(Schema):
+    id: int
+    name: str
+    requires_experience: bool
+    description: str
+    created_at: str
+    updated_at: str
+
+
+class EmployeeRoleAssignmentIn(Schema):
+    role_id: int
+    user_id: int
+    notes: Optional[str] = ""
+    active: Optional[bool] = True
+
+
+class EmployeeRoleAssignmentOut(Schema):
+    id: int
+    role_id: int
+    role_name: str
+    user_id: int
+    user_name: str
+    active: bool
+    notes: str
+    assigned_by: Optional[int]
+    created_at: str
+    updated_at: str
+
+
+class ShiftTransferRequestIn(Schema):
+    shift_id: str
+    action: str  # "drop" | "claim"
+    target_employee_id: Optional[int] = None
+    note: Optional[str] = ""
+
+
+class ShiftTransferModerateIn(Schema):
+    manager_note: Optional[str] = ""
+
+
+class ShiftTransferRequestOut(Schema):
+    id: int
+    shift_id: str
+    action: str
+    status: str
+    requested_by: int
+    requested_by_name: str
+    target_employee_id: Optional[int]
+    target_employee_name: Optional[str]
+    note: str
+    manager_note: str
+    approved_by: Optional[int]
+    approved_at: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class ShiftApproveIn(Schema):
+    note: Optional[str] = ""
 class GenerateResultOut(Schema):
     demand_id: int
     assignments: List[ScheduleShiftOut]

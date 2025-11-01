@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterable
 from django.db import transaction
 from django.utils import timezone
 from django.utils.timezone import make_aware
@@ -7,8 +7,10 @@ from ninja.errors import HttpError
 from datetime import datetime, date as date_type
 import hashlib
 import json
+from django.conf import settings
+from django.core.mail import send_mail
 
-from accounts.models import Company
+from accounts.models import Company, User
 from .models import (
     Availability,
     Demand,
@@ -18,8 +20,13 @@ from .models import (
     DayDemandIndex,
     DefaultDemand,
     CompanyLocation,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+    ShiftTransferRequest,
 )
 from .schemas import (
+    CompanyLocationIn,
+    CompanyLocationOut,
     BulkAvailabilityIn,
     AvailabilityOut,
     DemandDayIn,
@@ -29,6 +36,8 @@ from .schemas import (
     DefaultDemandOut,
     DefaultDemandDayOut,
     DefaultDemandBulkIn,
+    DefaultDemandWeekOut,
+    DefaultDemandWeekDayOut,
     ScheduleFullOut,
     ScheduleShiftOut,
     ShiftUpdateIn,
@@ -40,6 +49,15 @@ from .schemas import (
     GenerateDayIn,
     GenerateRangeIn,
     GenerateResultOut,
+    AutoGenerateIn,
+    EmployeeRoleIn,
+    EmployeeRoleOut,
+    EmployeeRoleAssignmentIn,
+    EmployeeRoleAssignmentOut,
+    ShiftTransferRequestIn,
+    ShiftTransferRequestOut,
+    ShiftTransferModerateIn,
+    ShiftApproveIn,
 )
 from donkeybackend.security import DRFJWTAuth
 from .solver import run_solver
@@ -143,6 +161,147 @@ def _validate_slots(slots: list[dict]) -> list[dict]:
         if 0 <= t1 < t2 <= 1440:
             ok.append({"start": f"{h1:02d}:{m1:02d}", "end": f"{h2:02d}:{m2:02d}"})
     return ok
+
+
+
+def _default_from_email() -> str:
+    return getattr(settings, "DEFAULT_FROM_EMAIL", getattr(settings, "SERVER_EMAIL", "no-reply@donkey.local"))
+
+
+def _collect_employee_emails(identifiers: Iterable[Any]) -> list[str]:
+    emails: set[str] = set()
+    if not identifiers:
+        return []
+    for raw in identifiers:
+        if raw is None:
+            continue
+        ident = str(raw).strip()
+        if not ident:
+            continue
+        try:
+            user = User.objects.get(pk=int(ident))
+        except (ValueError, User.DoesNotExist):
+            user = None
+        if user is None and "@" in ident:
+            try:
+                user = User.objects.get(email__iexact=ident)
+            except User.DoesNotExist:
+                user = None
+        if user:
+            if user.email:
+                emails.add(user.email)
+            continue
+        if "@" in ident:
+            emails.add(ident)
+    return sorted(emails)
+
+
+def _send_shift_notification(
+    shift: ScheduleShift,
+    action: str,
+    actor: Optional[User] = None,
+    note: str | None = None,
+    extra_recipients: Optional[Iterable[Any]] = None,
+) -> None:
+    recipients = set(_collect_employee_emails(shift.assigned_employees or []))
+    if extra_recipients:
+        recipients.update(_collect_employee_emails(extra_recipients))
+    recipient_list = sorted(recipients)
+    if not recipient_list:
+        return
+    actor_label = actor.full_name if actor and getattr(actor, "full_name", None) else (actor.email if actor else "System")
+    subject = f"Zmiana grafiku: {shift.date} {shift.start}-{shift.end}"
+    message_lines = [
+        f"Twoja zmiana {shift.date} {shift.start}-{shift.end} ({shift.location}) została {action}.",
+        "",
+    ]
+    if actor:
+        message_lines.append(f"Akcja wykonana przez: {actor_label}")
+    if note:
+        message_lines.extend(["", f"Notatka: {note}"])
+    message_lines.extend([
+        "",
+        "Pamiętaj, aby sprawdzić grafik w aplikacji.",
+    ])
+    try:
+        send_mail(subject, "\n".join(message_lines), _default_from_email(), recipient_list, fail_silently=True)
+    except Exception:
+        # Notification issues should not break API flow
+        pass
+
+
+def _shift_payload(shift: ScheduleShift, include_user_edited: bool = False) -> dict[str, Any]:
+    data = dict(
+        id=shift.shift_uid,
+        date=shift.date.isoformat(),
+        location=shift.location,
+        start=shift.start,
+        end=shift.end,
+        demand=shift.demand_count,
+        assigned_employees=list(shift.assigned_employees or []),
+        needs_experienced=bool(shift.needs_experienced),
+        missing_minutes=int(shift.missing_minutes or 0),
+        confirmed=bool(shift.confirmed),
+        approved_by=shift.approved_by_id,
+        approved_at=shift.approved_at.isoformat() if shift.approved_at else None,
+    )
+    if include_user_edited:
+        data["user_edited"] = bool(shift.user_edited)
+    return data
+
+
+def _transfer_payload(req: ShiftTransferRequest) -> dict[str, Any]:
+    requested_name = getattr(req.requested_by, "full_name", None) or req.requested_by.email
+    target_user = req.target_employee
+    target_name = None
+    if target_user:
+        target_name = getattr(target_user, "full_name", None) or target_user.email
+    return dict(
+        id=req.id,
+        shift_id=req.shift.shift_uid,
+        action=req.action,
+        status=req.status,
+        requested_by=req.requested_by_id,
+        requested_by_name=requested_name,
+        target_employee_id=req.target_employee_id,
+        target_employee_name=target_name,
+        note=req.note,
+        manager_note=req.manager_note,
+        approved_by=req.approved_by_id,
+        approved_at=req.approved_at.isoformat() if req.approved_at else None,
+        created_at=req.created_at.isoformat(),
+        updated_at=req.updated_at.isoformat(),
+    )
+
+
+def _employee_role_payload(role: EmployeeRole) -> dict[str, Any]:
+    return dict(
+        id=role.id,
+        name=role.name,
+        requires_experience=bool(role.requires_experience),
+        description=role.description,
+        created_at=role.created_at.isoformat(),
+        updated_at=role.updated_at.isoformat(),
+    )
+
+
+def _employee_role_assignment_payload(assignment: EmployeeRoleAssignment) -> dict[str, Any]:
+    user = assignment.user
+    role = assignment.role
+    assigned_by = assignment.assigned_by
+    user_name = getattr(user, "full_name", None) or user.email
+    return dict(
+        id=assignment.id,
+        role_id=role.id,
+        role_name=role.name,
+        user_id=user.id,
+        user_name=user_name,
+        active=bool(assignment.active),
+        notes=assignment.notes,
+        assigned_by=assigned_by.id if assigned_by else None,
+        created_at=assignment.created_at.isoformat(),
+        updated_at=assignment.updated_at.isoformat(),
+    )
 
 
 
@@ -329,17 +488,172 @@ def _normalize_weekday(value: Optional[int]) -> Optional[int]:
 
 @api.get(
     "/locations",
-    response=List[str],
+    response=List[CompanyLocationOut],
     openapi_extra={
         "summary": "Lista lokalizacji powiązanych z firmą",
-        "description": "Zwraca nazwy lokalizacji przypisanych do firmy zalogowanego użytkownika.",
+        "description": "Zwraca listę lokalizacji (restauracji) przypisanych do firmy zalogowanego użytkownika.",
     },
 )
-def list_locations(request) -> List[str]:
+def list_locations(request) -> List[dict]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
     company = _get_company_for_request(request)
-    return [loc.name for loc in CompanyLocation.objects.filter(company=company).order_by("name")]
+    locations = CompanyLocation.objects.filter(company=company).order_by("name")
+    return [
+        CompanyLocationOut(
+            id=loc.id,
+            name=loc.name,
+            created_at=timezone.localtime(loc.created_at).isoformat(),
+        ).dict()
+        for loc in locations
+    ]
+
+
+@api.post(
+    "/locations",
+    response=CompanyLocationOut,
+    openapi_extra={
+        "summary": "Dodaj nową lokalizację",
+        "description": "Tworzy nową lokalizację (restaurację) przypisaną do firmy zalogowanego użytkownika.",
+    },
+)
+@transaction.atomic
+def create_location(request, payload: CompanyLocationIn) -> dict:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    company = _get_company_for_request(request)
+    name = (payload.name or "").strip()
+    if not name:
+        raise HttpError(400, "Nazwa lokalizacji jest wymagana")
+
+    existing = CompanyLocation.objects.filter(company=company, name=name).first()
+    if existing:
+        raise HttpError(409, "Taka lokalizacja już istnieje")
+
+    location = CompanyLocation.objects.create(company=company, name=name)
+    return CompanyLocationOut(
+        id=location.id,
+        name=location.name,
+        created_at=timezone.localtime(location.created_at).isoformat(),
+    ).dict()
+
+
+@api.get(
+    "/roles",
+    response=List[EmployeeRoleOut],
+    openapi_extra={
+        "summary": "Lista ról pracowniczych",
+        "description": "Zwraca role dostępne w firmie wraz z wymaganiami dotyczącymi doświadczenia.",
+    },
+)
+def list_employee_roles(request) -> List[dict]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    company = _get_company_for_request(request)
+    roles = EmployeeRole.objects.filter(company=company).order_by("name")
+    return [_employee_role_payload(role) for role in roles]
+
+
+@api.post(
+    "/roles",
+    response=EmployeeRoleOut,
+    openapi_extra={
+        "summary": "Dodaj nową rolę pracownika",
+        "description": "Role pozwalają na filtrowanie zmian ze względu na funkcję lub doświadczenie.",
+    },
+)
+@transaction.atomic
+def create_employee_role(request, payload: EmployeeRoleIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if request.user.role not in ("manager", "owner"):
+        raise HttpError(403, "Tylko manager lub właściciel może tworzyć role")
+    company = _get_company_for_request(request)
+    name = (payload.name or "").strip()
+    if not name:
+        raise HttpError(400, "Nazwa roli jest wymagana")
+    role, created = EmployeeRole.objects.get_or_create(
+        company=company,
+        name=name,
+        defaults=dict(
+            requires_experience=bool(payload.requires_experience),
+            description=payload.description or "",
+        ),
+    )
+    if not created:
+        # Update description/experience flag if role already exists
+        role.requires_experience = bool(payload.requires_experience)
+        role.description = payload.description or role.description
+        role.save(update_fields=["requires_experience", "description", "updated_at"])
+    return _employee_role_payload(role)
+
+
+@api.get(
+    "/roles/assignments",
+    response=List[EmployeeRoleAssignmentOut],
+    openapi_extra={
+        "summary": "Lista przypisań ról",
+        "description": "Pokazuje aktywne przypisania ról dla pracowników w firmie.",
+    },
+)
+def list_role_assignments(request) -> List[dict]:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    company = _get_company_for_request(request)
+    assignments = (
+        EmployeeRoleAssignment.objects.select_related("role", "user", "assigned_by")
+        .filter(role__company=company)
+        .order_by("-created_at")
+    )
+    return [_employee_role_assignment_payload(a) for a in assignments]
+
+
+@api.post(
+    "/roles/assign",
+    response=EmployeeRoleAssignmentOut,
+    openapi_extra={
+        "summary": "Przypisz rolę pracownikowi",
+        "description": "Pozwala aktywować lub dezaktywować rolę dla wybranego pracownika.",
+    },
+)
+@transaction.atomic
+def assign_employee_role(request, payload: EmployeeRoleAssignmentIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if request.user.role not in ("manager", "owner"):
+        raise HttpError(403, "Tylko manager lub właściciel może zarządzać rolami")
+    company = _get_company_for_request(request)
+    try:
+        role = EmployeeRole.objects.get(id=payload.role_id, company=company)
+    except EmployeeRole.DoesNotExist:
+        raise HttpError(404, "Rola nie istnieje")
+    try:
+        user = User.objects.get(id=payload.user_id, company=company)
+    except User.DoesNotExist:
+        raise HttpError(404, "Pracownik nie istnieje")
+
+    active = True if payload.active is None else bool(payload.active)
+    notes = payload.notes or ""
+
+    assignment, created = EmployeeRoleAssignment.objects.update_or_create(
+        role=role,
+        user=user,
+        defaults=dict(
+            active=active,
+            notes=notes,
+            assigned_by=request.user,
+        ),
+    )
+
+    if not active:
+        # Ensure we persist deactivation timestamp
+        assignment.active = False
+        assignment.notes = notes
+        assignment.assigned_by = request.user
+        assignment.save(update_fields=["active", "notes", "assigned_by", "updated_at"])
+
+    return _employee_role_assignment_payload(assignment)
 
 
 def _canonicalize_day_items(items: List[Dict[str, Any]], date_s: str, location: str) -> List[Dict[str, Any]]:
@@ -443,17 +757,9 @@ def _with_ids(demand_id: int, assignments: List[Dict[str, Any]]) -> List[Dict[st
 def _assignments_from_db(demand: Demand) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for s in demand.shifts.all().order_by("date", "location", "start", "end"):
-        out.append({
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        })
+        payload = _shift_payload(s)
+        # ScheduleShiftOut schema does not expose user_edited so do not include it
+        out.append(payload)
     return out
 
 
@@ -463,17 +769,8 @@ def _assignments_for_day_from_db(demand: Demand, day: str, location: Optional[st
         qs = qs.filter(location=location)
     out: List[Dict[str, Any]] = []
     for s in qs.order_by("location", "start"):
-        out.append({
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        })
+        payload = _shift_payload(s)
+        out.append(payload)
     return out
 
 
@@ -529,6 +826,61 @@ def _list_default_days(company: Company, location: str) -> List[Dict[str, Any]]:
             items=canon,
             updated_at=timezone.localtime(obj.updated_at).isoformat(),
         ))
+    return out
+
+
+def _build_default_week(company: Company, location: str) -> List[Dict[str, Any]]:
+    qs = DefaultDemand.objects.filter(company=company, location=location).order_by("-updated_at", "-id")
+    by_weekday: dict[int, Dict[str, Any]] = {}
+    fallback: Optional[Dict[str, Any]] = None
+
+    for obj in qs:
+        canon = _canonicalize_template_items(obj.items or [])
+        entry = dict(
+            items=canon,
+            updated_at=timezone.localtime(obj.updated_at).isoformat() if obj.updated_at else None,
+        )
+        if obj.weekday is None:
+            if fallback is None:
+                fallback = entry
+        else:
+            if obj.weekday not in by_weekday:
+                by_weekday[obj.weekday] = entry
+
+    def _serialize_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [DemandSlotOut(**item).dict() for item in (items or [])]
+
+    out: List[Dict[str, Any]] = []
+    for weekday in range(7):
+        if weekday in by_weekday:
+            data = by_weekday[weekday]
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=_serialize_items(data["items"]),
+                    updated_at=data["updated_at"],
+                    inherited=False,
+                ).dict()
+            )
+        elif fallback is not None:
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=_serialize_items(fallback["items"]),
+                    updated_at=fallback["updated_at"],
+                    inherited=True,
+                ).dict()
+            )
+        else:
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=[],
+                    updated_at=None,
+                    inherited=False,
+                ).dict()
+            )
+
     return out
 
 
@@ -772,6 +1124,31 @@ def save_default_demand_bulk(request, payload: DefaultDemandBulkIn):
             ).dict()
             for entry in defaults
         ],
+    )
+
+
+@api.get(
+    "/demand/default/week",
+    response=DefaultDemandWeekOut,
+    openapi_extra={
+        "summary": "Pobierz pełny tygodniowy szablon zapotrzebowania",
+        "description": (
+            "Zwraca listę siedmiu dni (poniedziałek=0 … niedziela=6) wraz z domyślnymi zmianami. "
+            "Jeżeli dla dnia nie ma indywidualnego zapisu, zostaną użyte zmiany z szablonu ogólnego (weekday=null)."
+        ),
+    },
+)
+def get_default_demand_week(request, location: Optional[str] = None):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    company = _get_company_for_request(request)
+    defaults = _build_default_week(company, loc)
+
+    return dict(
+        location=loc,
+        defaults=defaults,
     )
 
 
@@ -1138,19 +1515,7 @@ def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[
     # If we already have persisted shifts for that date/location across any demand, return them
     shifts_qs = ScheduleShift.objects.filter(date=day, location=loc)
     if shifts_qs.exists():
-        return [
-            dict(
-                id=s.shift_uid,
-                date=s.date.isoformat(),
-                location=s.location,
-                start=s.start,
-                end=s.end,
-                demand=s.demand_count,
-                assigned_employees=list(s.assigned_employees or []),
-                needs_experienced=bool(s.needs_experienced),
-                missing_minutes=int(s.missing_minutes or 0),
-            ) for s in shifts_qs.order_by("start", "end")
-        ]
+        return [_shift_payload(s) for s in shifts_qs.order_by("start", "end")]
     # No persisted shifts — try to find a weekly demand through DayDemandIndex
     idx = _get_or_build_day_index(day, loc)
     if not idx:
@@ -1232,18 +1597,7 @@ def generate_day(request, payload: GenerateDayIn):
     return dict(demand_id=d.id, assignments=_assignments_for_day_from_db(d, day, location=loc), summary=summary)
 
 
-@api.post(
-    "/generate-range",
-    response=GenerateResultOut,
-    openapi_extra={
-        "summary": "Ułóż grafik na kilka dni",
-        "description": "Buduje grafik dla zakresu dat korzystając z podanej listy zmian lub domyślnego zapotrzebowania restauracji.",
-    },
-)
-@transaction.atomic
-def generate_range(request, payload: GenerateRangeIn):
-    if not request.user or not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
+def _generate_range_internal(request, payload: GenerateRangeIn) -> tuple[Dict[str, Any], Demand, date_type, date_type, str]:
     loc = _infer_location(request, payload.location, create_if_missing=True)
     company = _get_company_for_request(request)
     if payload.items and len(payload.items) > 0:
@@ -1278,7 +1632,7 @@ def generate_range(request, payload: GenerateRangeIn):
 
     # Create/find Demand for full range (idempotent via content hash)
     content_hash = _hash_payload(full_items)
-    d, created = Demand.objects.get_or_create(
+    d, _created = Demand.objects.get_or_create(
         content_hash=content_hash,
         defaults=dict(name=f"{start.isoformat()}..{end.isoformat()} {loc}", raw_payload=full_items, date_from=start, date_to=end)
     )
@@ -1290,10 +1644,57 @@ def generate_range(request, payload: GenerateRangeIn):
         emp_avail = _build_emp_availability(start, end)
         demand_payload = _apply_special_rules_to_demand(full_items, start, end)
         res = run_solver(emp_availability=emp_avail, demand=demand_payload)
-        return dict(demand_id=d.id, assignments=res.get("assignments", []), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
+        result = dict(
+            demand_id=d.id,
+            assignments=res.get("assignments", []),
+            summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])},
+        )
+        return result, d, start, end, loc
 
     assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
-    return dict(demand_id=d.id, assignments=assignments, summary=summary)
+    result = dict(demand_id=d.id, assignments=assignments, summary=summary)
+    return result, d, start, end, loc
+
+
+@api.post(
+    "/generate-range",
+    response=GenerateResultOut,
+    openapi_extra={
+        "summary": "Ułóż grafik na kilka dni",
+        "description": "Buduje grafik dla zakresu dat korzystając z podanej listy zmian lub domyślnego zapotrzebowania restauracji.",
+    },
+)
+@transaction.atomic
+def generate_range(request, payload: GenerateRangeIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    result, _demand, _start, _end, _loc = _generate_range_internal(request, payload)
+    return result
+
+
+@api.post(
+    "/schedule/auto-generate",
+    response=GenerateResultOut,
+    openapi_extra={
+        "summary": "Automatycznie ułóż grafik na podstawie dyspozycyjności",
+        "description": (
+            "Buduje grafik w podanym zakresie dat korzystając z dyspozycyjności pracowników oraz domyślnych szablonów. "
+            "Może wysłać powiadomienia mailowe do pracowników przydzielonych do zmian."
+        ),
+    },
+)
+@transaction.atomic
+def auto_generate_schedule(request, payload: AutoGenerateIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    result, demand, start, end, loc = _generate_range_internal(request, payload)
+    if payload.persist is False:
+        return result
+    if payload.send_notifications:
+        shifts_qs = demand.shifts.filter(date__gte=start, date__lte=end, location=loc)
+        for shift in shifts_qs:
+            _send_shift_notification(shift, "zaplanuowana automatycznie", actor=request.user)
+    return result
 
 
 @api.get("/schedule/{demand_id}/day/{day}")
@@ -1305,20 +1706,7 @@ def get_schedule_day(request, demand_id: int, day: str) -> List[ScheduleShiftOut
     except Demand.DoesNotExist:
         raise HttpError(404, "Demand not found")
     dsh = d.shifts.filter(date=day)
-    return [
-        {
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        }
-        for s in dsh.order_by("location", "start")
-    ]
+    return [_shift_payload(s) for s in dsh.order_by("location", "start")]
 
 
 @api.get("/schedule/shift/{shift_id}", response=ShiftOut)
@@ -1329,19 +1717,8 @@ def get_shift(request, shift_id: str):
         s = ScheduleShift.objects.get(shift_uid=shift_id)
     except ScheduleShift.DoesNotExist:
         raise HttpError(404, "Shift not found")
-    return dict(
-        id=s.shift_uid,
-        date=s.date.isoformat(),
-        location=s.location,
-        start=s.start,
-        end=s.end,
-        demand=s.demand_count,
-        assigned_employees=list(s.assigned_employees or []),
-        needs_experienced=bool(s.needs_experienced),
-        missing_minutes=int(s.missing_minutes or 0),
-        confirmed=bool(s.confirmed),
-        user_edited=bool(s.user_edited),
-    )
+    data = _shift_payload(s, include_user_edited=True)
+    return data
 
 
 @api.post("/schedule/shift", response=ShiftOut)
@@ -1373,7 +1750,7 @@ def upsert_shift(request, payload: ShiftUpdateIn):
         s.demand_count = int(payload.demand)
         fields.append("demand_count")
     if payload.assigned_employees is not None:
-        s.assigned_employees = list(payload.assigned_employees)
+        s.assigned_employees = [str(emp) for emp in payload.assigned_employees]
         fields.append("assigned_employees")
     if payload.needs_experienced is not None:
         s.needs_experienced = bool(payload.needs_experienced)
@@ -1385,20 +1762,173 @@ def upsert_shift(request, payload: ShiftUpdateIn):
         s.confirmed = bool(payload.confirmed)
         fields.append("confirmed")
 
+    # Manual edits invalidate previous approvals
+    s.approved_by = None
+    s.approved_at = None
+    fields.extend(["approved_by", "approved_at"])
+
     s.user_edited = True
     fields += ["user_edited", "updated_at"]
     s.save(update_fields=list(set(fields)))
 
-    return dict(
-        id=s.shift_uid,
-        date=s.date.isoformat(),
-        location=s.location,
-        start=s.start,
-        end=s.end,
-        demand=s.demand_count,
-        assigned_employees=list(s.assigned_employees or []),
-        needs_experienced=bool(s.needs_experienced),
-        missing_minutes=int(s.missing_minutes or 0),
-        confirmed=bool(s.confirmed),
-        user_edited=bool(s.user_edited),
+    _send_shift_notification(s, "zaktualizowana", actor=request.user)
+
+    data = _shift_payload(s, include_user_edited=True)
+    return data
+
+
+@api.post("/schedule/shift/{shift_id}/approve", response=ShiftOut)
+@transaction.atomic
+def approve_shift(request, shift_id: str, payload: ShiftApproveIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if request.user.role not in ("manager", "owner"):
+        raise HttpError(403, "Tylko manager lub właściciel może zatwierdzać zmiany")
+    try:
+        s = ScheduleShift.objects.get(shift_uid=shift_id)
+    except ScheduleShift.DoesNotExist:
+        raise HttpError(404, "Shift not found")
+
+    s.confirmed = True
+    s.approved_by = request.user
+    s.approved_at = timezone.now()
+    s.user_edited = True
+    s.save(update_fields=["confirmed", "approved_by", "approved_at", "user_edited", "updated_at"])
+
+    _send_shift_notification(s, "zatwierdzona", actor=request.user, note=payload.note)
+
+    return _shift_payload(s, include_user_edited=True)
+
+
+@api.post("/schedule/shift-transfer", response=ShiftTransferRequestOut)
+@transaction.atomic
+def create_shift_transfer_request(request, payload: ShiftTransferRequestIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    try:
+        shift = ScheduleShift.objects.select_related("demand").get(shift_uid=payload.shift_id)
+    except ScheduleShift.DoesNotExist:
+        raise HttpError(404, "Shift not found")
+
+    action = (payload.action or "").lower()
+    if action not in (ShiftTransferRequest.ACTION_DROP, ShiftTransferRequest.ACTION_CLAIM):
+        raise HttpError(400, "Unsupported action")
+
+    requester = request.user
+    assigned_raw = list(shift.assigned_employees or [])
+    assigned_tokens = {str(x) for x in assigned_raw}
+    assigned_lower = {token.lower() for token in assigned_tokens}
+    requester_identifiers = {str(requester.id)}
+    if requester.email:
+        requester_identifiers.add(requester.email)
+        requester_identifiers.add(requester.email.lower())
+
+    target_user = None
+    if payload.target_employee_id:
+        try:
+            target_user = User.objects.get(id=payload.target_employee_id, company=requester.company)
+        except User.DoesNotExist:
+            raise HttpError(400, "Nie znaleziono wskazanego pracownika")
+
+    if action == ShiftTransferRequest.ACTION_DROP:
+        if requester_identifiers.isdisjoint(assigned_tokens | assigned_lower):
+            raise HttpError(400, "Pracownik nie jest przypisany do tej zmiany")
+    elif action == ShiftTransferRequest.ACTION_CLAIM:
+        if requester_identifiers & (assigned_tokens | assigned_lower):
+            raise HttpError(400, "Pracownik już jest przypisany do tej zmiany")
+
+    req = ShiftTransferRequest.objects.create(
+        shift=shift,
+        requested_by=requester,
+        target_employee=target_user,
+        action=action,
+        note=payload.note or "",
     )
+
+    extra = [addr for addr in [requester.email, target_user.email if target_user else None] if addr]
+    _send_shift_notification(shift, "zgłoszona do akceptacji", actor=request.user, note=payload.note, extra_recipients=extra)
+
+    return _transfer_payload(req)
+
+
+@api.post("/schedule/shift-transfer/{request_id}/approve", response=ShiftTransferRequestOut)
+@transaction.atomic
+def approve_shift_transfer(request, request_id: int, payload: ShiftTransferModerateIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if request.user.role not in ("manager", "owner"):
+        raise HttpError(403, "Tylko manager lub właściciel może akceptować zmiany")
+    try:
+        req = ShiftTransferRequest.objects.select_related("shift", "requested_by", "target_employee").get(id=request_id)
+    except ShiftTransferRequest.DoesNotExist:
+        raise HttpError(404, "Request not found")
+    if req.status != ShiftTransferRequest.STATUS_PENDING:
+        raise HttpError(400, "Wniosek został już rozpatrzony")
+
+    shift = req.shift
+    assigned = [str(x) for x in (shift.assigned_employees or [])]
+
+    requester_id_str = str(req.requested_by_id)
+    requester_email = req.requested_by.email.lower()
+    assigned = [a for a in assigned if str(a) not in {requester_id_str, requester_email}]
+
+    if req.action == ShiftTransferRequest.ACTION_DROP:
+        if req.target_employee_id:
+            assigned.append(str(req.target_employee_id))
+    elif req.action == ShiftTransferRequest.ACTION_CLAIM:
+        assigned.append(str(req.requested_by_id))
+
+    # De-duplicate while preserving order
+    seen = set()
+    deduped: list[str] = []
+    for a in assigned:
+        key = str(a)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+
+    shift.assigned_employees = deduped
+    shift.confirmed = True
+    shift.approved_by = request.user
+    shift.approved_at = timezone.now()
+    shift.user_edited = True
+    shift.save(update_fields=["assigned_employees", "confirmed", "approved_by", "approved_at", "user_edited", "updated_at"])
+
+    req.status = ShiftTransferRequest.STATUS_APPROVED
+    req.manager_note = payload.manager_note or ""
+    req.approved_by = request.user
+    req.approved_at = timezone.now()
+    req.save(update_fields=["status", "manager_note", "approved_by", "approved_at", "updated_at"])
+
+    extra_recipients = [addr for addr in [req.requested_by.email, req.target_employee.email if req.target_employee else None] if addr]
+    _send_shift_notification(shift, "zatwierdzona (zmiana obsady)", actor=request.user, note=req.manager_note, extra_recipients=extra_recipients)
+
+    return _transfer_payload(req)
+
+
+@api.post("/schedule/shift-transfer/{request_id}/reject", response=ShiftTransferRequestOut)
+@transaction.atomic
+def reject_shift_transfer(request, request_id: int, payload: ShiftTransferModerateIn):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    if request.user.role not in ("manager", "owner"):
+        raise HttpError(403, "Tylko manager lub właściciel może akceptować zmiany")
+    try:
+        req = ShiftTransferRequest.objects.select_related("shift", "requested_by", "target_employee").get(id=request_id)
+    except ShiftTransferRequest.DoesNotExist:
+        raise HttpError(404, "Request not found")
+    if req.status != ShiftTransferRequest.STATUS_PENDING:
+        raise HttpError(400, "Wniosek został już rozpatrzony")
+
+    req.status = ShiftTransferRequest.STATUS_REJECTED
+    req.manager_note = payload.manager_note or ""
+    req.approved_by = request.user
+    req.approved_at = timezone.now()
+    req.save(update_fields=["status", "manager_note", "approved_by", "approved_at", "updated_at"])
+
+    shift = req.shift
+    extra_recipients = [addr for addr in [req.requested_by.email, req.target_employee.email if req.target_employee else None] if addr]
+    _send_shift_notification(shift, "odrzucona prośba o zmianę", actor=request.user, note=req.manager_note, extra_recipients=extra_recipients)
+
+    return _transfer_payload(req)

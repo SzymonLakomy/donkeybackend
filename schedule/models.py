@@ -3,7 +3,7 @@ from django.db import models
 # Create your models here.
 
 from django.db import models
-from accounts.models import Company
+from accounts.models import Company, User
 
 BIG_MAX = 1_000_000_000
 
@@ -70,6 +70,15 @@ class ScheduleShift(models.Model):
 
     user_edited   = models.BooleanField(default=False)
     confirmed     = models.BooleanField(default=False)
+
+    approved_by   = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_schedule_shifts",
+    )
+    approved_at   = models.DateTimeField(null=True, blank=True)
 
     meta          = models.JSONField(null=True, blank=True)
 
@@ -187,3 +196,95 @@ class DefaultDemand(models.Model):
         day = "*" if self.weekday is None else str(self.weekday)
         company_code = self.company.code if self.company_id else "?"
         return f"DefaultDemand[{company_code}:{self.location}:{day}]"
+
+
+class EmployeeRole(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="employee_roles")
+    name = models.CharField(max_length=255)
+    requires_experience = models.BooleanField(default=False)
+    description = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("company", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"Role[{self.company.code}:{self.name}]"
+
+
+class EmployeeRoleAssignment(models.Model):
+    role = models.ForeignKey(EmployeeRole, on_delete=models.CASCADE, related_name="assignments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="schedule_role_assignments")
+    assigned_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="schedule_role_assignments_made",
+    )
+    notes = models.CharField(max_length=255, blank=True, default="")
+    active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("role", "user")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        status = "active" if self.active else "inactive"
+        return f"RoleAssignment[{self.role_id}->{self.user_id} {status}]"
+
+
+class ShiftTransferRequest(models.Model):
+    ACTION_DROP = "drop"
+    ACTION_CLAIM = "claim"
+    ACTION_CHOICES = [
+        (ACTION_DROP, "Drop"),
+        (ACTION_CLAIM, "Claim"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
+    shift = models.ForeignKey(ScheduleShift, on_delete=models.CASCADE, related_name="transfer_requests")
+    requested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shift_transfer_requests")
+    target_employee = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="shift_transfer_targets",
+    )
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    note = models.TextField(blank=True, default="")
+    manager_note = models.TextField(blank=True, default="")
+
+    approved_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="shift_transfer_requests_approved",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"ShiftTransfer[{self.shift_id}:{self.action}:{self.status}]"
