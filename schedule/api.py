@@ -20,6 +20,8 @@ from .models import (
     CompanyLocation,
 )
 from .schemas import (
+    CompanyLocationIn,
+    CompanyLocationOut,
     BulkAvailabilityIn,
     AvailabilityOut,
     DemandDayIn,
@@ -29,6 +31,8 @@ from .schemas import (
     DefaultDemandOut,
     DefaultDemandDayOut,
     DefaultDemandBulkIn,
+    DefaultDemandWeekOut,
+    DefaultDemandWeekDayOut,
     ScheduleFullOut,
     ScheduleShiftOut,
     ShiftUpdateIn,
@@ -329,17 +333,55 @@ def _normalize_weekday(value: Optional[int]) -> Optional[int]:
 
 @api.get(
     "/locations",
-    response=List[str],
+    response=List[CompanyLocationOut],
     openapi_extra={
         "summary": "Lista lokalizacji powiązanych z firmą",
-        "description": "Zwraca nazwy lokalizacji przypisanych do firmy zalogowanego użytkownika.",
+        "description": "Zwraca listę lokalizacji (restauracji) przypisanych do firmy zalogowanego użytkownika.",
     },
 )
-def list_locations(request) -> List[str]:
+def list_locations(request) -> List[dict]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
     company = _get_company_for_request(request)
-    return [loc.name for loc in CompanyLocation.objects.filter(company=company).order_by("name")]
+    locations = CompanyLocation.objects.filter(company=company).order_by("name")
+    return [
+        CompanyLocationOut(
+            id=loc.id,
+            name=loc.name,
+            created_at=timezone.localtime(loc.created_at).isoformat(),
+        ).dict()
+        for loc in locations
+    ]
+
+
+@api.post(
+    "/locations",
+    response=CompanyLocationOut,
+    openapi_extra={
+        "summary": "Dodaj nową lokalizację",
+        "description": "Tworzy nową lokalizację (restaurację) przypisaną do firmy zalogowanego użytkownika.",
+    },
+)
+@transaction.atomic
+def create_location(request, payload: CompanyLocationIn) -> dict:
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    company = _get_company_for_request(request)
+    name = (payload.name or "").strip()
+    if not name:
+        raise HttpError(400, "Nazwa lokalizacji jest wymagana")
+
+    existing = CompanyLocation.objects.filter(company=company, name=name).first()
+    if existing:
+        raise HttpError(409, "Taka lokalizacja już istnieje")
+
+    location = CompanyLocation.objects.create(company=company, name=name)
+    return CompanyLocationOut(
+        id=location.id,
+        name=location.name,
+        created_at=timezone.localtime(location.created_at).isoformat(),
+    ).dict()
 
 
 def _canonicalize_day_items(items: List[Dict[str, Any]], date_s: str, location: str) -> List[Dict[str, Any]]:
@@ -529,6 +571,61 @@ def _list_default_days(company: Company, location: str) -> List[Dict[str, Any]]:
             items=canon,
             updated_at=timezone.localtime(obj.updated_at).isoformat(),
         ))
+    return out
+
+
+def _build_default_week(company: Company, location: str) -> List[Dict[str, Any]]:
+    qs = DefaultDemand.objects.filter(company=company, location=location).order_by("-updated_at", "-id")
+    by_weekday: dict[int, Dict[str, Any]] = {}
+    fallback: Optional[Dict[str, Any]] = None
+
+    for obj in qs:
+        canon = _canonicalize_template_items(obj.items or [])
+        entry = dict(
+            items=canon,
+            updated_at=timezone.localtime(obj.updated_at).isoformat() if obj.updated_at else None,
+        )
+        if obj.weekday is None:
+            if fallback is None:
+                fallback = entry
+        else:
+            if obj.weekday not in by_weekday:
+                by_weekday[obj.weekday] = entry
+
+    def _serialize_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [DemandSlotOut(**item).dict() for item in (items or [])]
+
+    out: List[Dict[str, Any]] = []
+    for weekday in range(7):
+        if weekday in by_weekday:
+            data = by_weekday[weekday]
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=_serialize_items(data["items"]),
+                    updated_at=data["updated_at"],
+                    inherited=False,
+                ).dict()
+            )
+        elif fallback is not None:
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=_serialize_items(fallback["items"]),
+                    updated_at=fallback["updated_at"],
+                    inherited=True,
+                ).dict()
+            )
+        else:
+            out.append(
+                DefaultDemandWeekDayOut(
+                    weekday=weekday,
+                    items=[],
+                    updated_at=None,
+                    inherited=False,
+                ).dict()
+            )
+
     return out
 
 
@@ -772,6 +869,31 @@ def save_default_demand_bulk(request, payload: DefaultDemandBulkIn):
             ).dict()
             for entry in defaults
         ],
+    )
+
+
+@api.get(
+    "/demand/default/week",
+    response=DefaultDemandWeekOut,
+    openapi_extra={
+        "summary": "Pobierz pełny tygodniowy szablon zapotrzebowania",
+        "description": (
+            "Zwraca listę siedmiu dni (poniedziałek=0 … niedziela=6) wraz z domyślnymi zmianami. "
+            "Jeżeli dla dnia nie ma indywidualnego zapisu, zostaną użyte zmiany z szablonu ogólnego (weekday=null)."
+        ),
+    },
+)
+def get_default_demand_week(request, location: Optional[str] = None):
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    loc = _infer_location(request, location)
+    company = _get_company_for_request(request)
+    defaults = _build_default_week(company, loc)
+
+    return dict(
+        location=loc,
+        defaults=defaults,
     )
 
 
