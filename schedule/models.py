@@ -3,6 +3,7 @@ from django.db import models
 # Create your models here.
 
 from django.db import models
+from accounts.models import Company
 
 BIG_MAX = 1_000_000_000
 
@@ -155,15 +156,34 @@ class DayDemandIndex(models.Model):
         return f"DayIndex[{self.date} {self.location} #{self.day_hash[:8]}] -> Demand {self.demand_id}"
 
 
+class CompanyLocation(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="schedule_locations")
+    name = models.CharField(max_length=255)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.company.name}::{self.name}"
+
+
 class DefaultDemand(models.Model):
-    location = models.CharField(max_length=255, unique=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="default_demands", null=True, blank=True)
+    location = models.CharField(max_length=255)
+    weekday = models.PositiveSmallIntegerField(null=True, blank=True)
     items = models.JSONField(default=list)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["location"]
+        ordering = ["location", "weekday"]
+        unique_together = ("company", "location", "weekday")
 
     def __str__(self):
-        return f"DefaultDemand[{self.location}]"
+        day = "*" if self.weekday is None else str(self.weekday)
+        company_code = self.company.code if self.company_id else "?"
+        return f"DefaultDemand[{company_code}:{self.location}:{day}]"
