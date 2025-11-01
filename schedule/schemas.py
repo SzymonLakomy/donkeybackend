@@ -139,13 +139,29 @@ class DemandShiftTemplateIn(Schema):
 
 class DefaultDemandIn(Schema):
     location: Optional[str] = None
+    weekday: Optional[int] = None
     items: List[DemandShiftTemplateIn]
+
+
+class DefaultDemandDayIn(Schema):
+    weekday: Optional[int] = None
+    items: List[DemandShiftTemplateIn]
+
+
+class DefaultDemandBulkIn(Schema):
+    location: Optional[str] = None
+    defaults: List[DefaultDemandDayIn]
+
+
+class DefaultDemandDayOut(Schema):
+    weekday: Optional[int] = None
+    items: List[DemandSlotOut]
+    updated_at: str
 
 
 class DefaultDemandOut(Schema):
     location: str
-    items: List[DemandSlotOut]
-    updated_at: str
+    defaults: List[DefaultDemandDayOut]
 
 class GenerateDayIn(Schema):
     date: str
