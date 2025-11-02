@@ -482,20 +482,31 @@ def _with_ids(demand_id: int, assignments: List[Dict[str, Any]]) -> List[Dict[st
     return out
 
 
+def _shift_base_dict(s: ScheduleShift) -> Dict[str, Any]:
+    meta_raw = s.meta or {}
+    if isinstance(meta_raw, dict):
+        meta_dict = dict(meta_raw)
+    else:
+        meta_dict = {}
+    return {
+        "id": s.shift_uid,
+        "date": s.date.isoformat(),
+        "location": s.location,
+        "start": s.start,
+        "end": s.end,
+        "demand": s.demand_count,
+        "assigned_employees": list(s.assigned_employees or []),
+        "needs_experienced": bool(s.needs_experienced),
+        "missing_minutes": int(s.missing_minutes or 0),
+        "assigned_employees_detail": list(meta_dict.get("assigned_employees_detail", [])),
+        "missing_segments": list(meta_dict.get("missing_segments", [])),
+    }
+
+
 def _assignments_from_db(demand: Demand) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for s in demand.shifts.all().order_by("date", "location", "start", "end"):
-        out.append({
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        })
+        out.append(_shift_base_dict(s))
     return out
 
 
@@ -505,17 +516,7 @@ def _assignments_for_day_from_db(demand: Demand, day: str, location: Optional[st
         qs = qs.filter(location=location)
     out: List[Dict[str, Any]] = []
     for s in qs.order_by("location", "start"):
-        out.append({
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        })
+        out.append(_shift_base_dict(s))
     return out
 
 
@@ -1079,6 +1080,15 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
     from datetime import date as _date
     for a in ass:
         uid = _shift_uid(d.id, a)
+        meta_payload = {
+            "uncovered": res.get("uncovered", []),
+            "hours_summary": res.get("hours_summary", []),
+        }
+        if a.get("assigned_employees_detail") is not None:
+            meta_payload["assigned_employees_detail"] = list(a.get("assigned_employees_detail") or [])
+        if a.get("missing_segments") is not None:
+            meta_payload["missing_segments"] = list(a.get("missing_segments") or [])
+
         to_create.append(ScheduleShift(
             demand=d,
             shift_uid=uid,
@@ -1090,7 +1100,7 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
             needs_experienced=bool(a.get("needs_experienced", False)),
             assigned_employees=list(a.get("assigned_employees", []) or []),
             missing_minutes=int(a.get("missing_minutes", 0) or 0),
-            meta=dict(uncovered=res.get("uncovered", []), hours_summary=res.get("hours_summary", [])),
+            meta=meta_payload,
         ))
     if to_create:
         ScheduleShift.objects.bulk_create(to_create, ignore_conflicts=True)
@@ -1426,21 +1436,8 @@ def get_schedule_day(request, demand_id: int, day: str) -> List[ScheduleShiftOut
         d = Demand.objects.get(id=demand_id)
     except Demand.DoesNotExist:
         raise HttpError(404, "Demand not found")
-    dsh = d.shifts.filter(date=day)
-    return [
-        {
-            "id": s.shift_uid,
-            "date": s.date.isoformat(),
-            "location": s.location,
-            "start": s.start,
-            "end": s.end,
-            "demand": s.demand_count,
-            "assigned_employees": list(s.assigned_employees or []),
-            "needs_experienced": bool(s.needs_experienced),
-            "missing_minutes": int(s.missing_minutes or 0),
-        }
-        for s in dsh.order_by("location", "start")
-    ]
+    dsh = d.shifts.filter(date=day).order_by("location", "start")
+    return [_shift_base_dict(s) for s in dsh]
 
 
 @api.get("/schedule/shift/{shift_id}", response=ShiftOut)
@@ -1451,19 +1448,12 @@ def get_shift(request, shift_id: str):
         s = ScheduleShift.objects.get(shift_uid=shift_id)
     except ScheduleShift.DoesNotExist:
         raise HttpError(404, "Shift not found")
-    return dict(
-        id=s.shift_uid,
-        date=s.date.isoformat(),
-        location=s.location,
-        start=s.start,
-        end=s.end,
-        demand=s.demand_count,
-        assigned_employees=list(s.assigned_employees or []),
-        needs_experienced=bool(s.needs_experienced),
-        missing_minutes=int(s.missing_minutes or 0),
+    data = _shift_base_dict(s)
+    data.update(
         confirmed=bool(s.confirmed),
         user_edited=bool(s.user_edited),
     )
+    return data
 
 
 @api.post("/schedule/shift", response=ShiftOut)
@@ -1507,20 +1497,32 @@ def upsert_shift(request, payload: ShiftUpdateIn):
         s.confirmed = bool(payload.confirmed)
         fields.append("confirmed")
 
+    meta_raw = s.meta or {}
+    meta = dict(meta_raw) if isinstance(meta_raw, dict) else {}
+    meta_changed = False
+    if payload.assigned_employees_detail is not None:
+        try:
+            meta["assigned_employees_detail"] = list(payload.assigned_employees_detail or [])
+        except Exception:
+            meta["assigned_employees_detail"] = []
+        meta_changed = True
+    if payload.missing_segments is not None:
+        try:
+            meta["missing_segments"] = list(payload.missing_segments or [])
+        except Exception:
+            meta["missing_segments"] = []
+        meta_changed = True
+    if meta_changed:
+        s.meta = meta
+        fields.append("meta")
+
     s.user_edited = True
     fields += ["user_edited", "updated_at"]
     s.save(update_fields=list(set(fields)))
 
-    return dict(
-        id=s.shift_uid,
-        date=s.date.isoformat(),
-        location=s.location,
-        start=s.start,
-        end=s.end,
-        demand=s.demand_count,
-        assigned_employees=list(s.assigned_employees or []),
-        needs_experienced=bool(s.needs_experienced),
-        missing_minutes=int(s.missing_minutes or 0),
+    data = _shift_base_dict(s)
+    data.update(
         confirmed=bool(s.confirmed),
         user_edited=bool(s.user_edited),
     )
+    return data

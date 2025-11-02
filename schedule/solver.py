@@ -11,6 +11,13 @@ def _to_minutes(hhmm: str) -> int:
     return h * 60 + m
 
 
+def _to_hhmm(total_minutes: int) -> str:
+    total_minutes = max(0, int(total_minutes))
+    h = (total_minutes // 60) % 24
+    m = total_minutes % 60
+    return f"{h:02d}:{m:02d}"
+
+
 def _overlaps(a_start, a_end, b_start, b_end) -> bool:
     return not (a_end <= b_start or b_end <= a_start)
 
@@ -75,6 +82,7 @@ def run_solver(emp_availability: List[Dict[str, Any]], demand: List[Dict[str, An
     shifts = slices
     emps: List[str] = []
     employees: Dict[str, Dict[str, Any]] = {}
+    employee_names: Dict[str, str] = {}
     availability: Dict[Tuple[str, str], List[Tuple[int, int]]] = {}
     preassign_orig: Dict[Tuple[str, str], bool] = {}
 
@@ -87,6 +95,8 @@ def run_solver(emp_availability: List[Dict[str, Any]], demand: List[Dict[str, An
                 "hours_min": int(rec.get("hours_min", 0)),
                 "hours_max": int(rec.get("hours_max", 10**9)),
             }
+        if rec.get("employee_name") is not None:
+            employee_names[emp] = rec.get("employee_name") or ""
         employees[emp]["hours_min"] = max(employees[emp]["hours_min"], int(rec.get("hours_min", 0)))
         employees[emp]["hours_max"] = min(employees[emp]["hours_max"], int(rec.get("hours_max", 10**9)))
 
@@ -258,14 +268,86 @@ def run_solver(emp_availability: List[Dict[str, Any]], demand: List[Dict[str, An
         sl_list = slices_by_orig.get(sid0, [])
         assigned_set = set()
         covered_person_min = 0
+        per_emp_slices: Dict[str, List[Tuple[int, int]]] = {}
+        missing_slices: List[Tuple[int, int, int]] = []
         for sl in sl_list:
             sid = sl["id"]
             assigned_here = [e for e in emps if solver.Value(x[(e, sid)]) == 1]
             for e in assigned_here:
                 assigned_set.add(e)
+                per_emp_slices.setdefault(e, []).append((sl["start_min"], sl["end_min"]))
             covered_person_min += min(len(assigned_here), int(s0["demand"])) * sl["dur_min"]
+            missing_count = max(0, int(s0["demand"]) - len(assigned_here))
+            if missing_count > 0:
+                missing_slices.append((sl["start_min"], sl["end_min"], missing_count))
         total_needed_min = s0["dur_min"] * int(s0["demand"])
         missing_minutes = max(0, total_needed_min - covered_person_min)
+
+        assigned_details: List[Dict[str, Any]] = []
+        for emp in sorted(per_emp_slices.keys()):
+            segments_raw = sorted(per_emp_slices[emp])
+            merged: List[List[int]] = []
+            for start_min, end_min in segments_raw:
+                if not merged:
+                    merged.append([start_min, end_min])
+                    continue
+                prev_start, prev_end = merged[-1]
+                if start_min <= prev_end and end_min >= prev_end:
+                    merged[-1][1] = max(prev_end, end_min)
+                elif start_min == prev_end:
+                    merged[-1][1] = end_min
+                else:
+                    merged.append([start_min, end_min])
+
+            total_emp_min = 0
+            segments_fmt: List[Dict[str, Any]] = []
+            for start_min, end_min in merged:
+                start = _to_hhmm(start_min)
+                end = _to_hhmm(end_min)
+                dur = max(0, end_min - start_min)
+                total_emp_min += dur
+                segments_fmt.append({
+                    "start": start,
+                    "end": end,
+                    "minutes": dur,
+                })
+
+            if segments_fmt:
+                assigned_details.append({
+                    "employee_id": emp,
+                    "employee_name": employee_names.get(emp, ""),
+                    "start": segments_fmt[0]["start"],
+                    "end": segments_fmt[-1]["end"],
+                    "minutes": total_emp_min,
+                    "segments": segments_fmt,
+                })
+
+        missing_segments: List[Dict[str, Any]] = []
+        for start_min, end_min, missing_count in sorted(missing_slices):
+            if not missing_segments:
+                missing_segments.append({
+                    "start_min": start_min,
+                    "end_min": end_min,
+                    "missing": missing_count,
+                    "missing_minutes": (end_min - start_min) * missing_count,
+                })
+                continue
+            prev = missing_segments[-1]
+            if prev["missing"] == missing_count and prev["end_min"] == start_min:
+                prev["end_min"] = end_min
+                prev["missing_minutes"] += (end_min - start_min) * missing_count
+            else:
+                missing_segments.append({
+                    "start_min": start_min,
+                    "end_min": end_min,
+                    "missing": missing_count,
+                    "missing_minutes": (end_min - start_min) * missing_count,
+                })
+
+        for seg in missing_segments:
+            seg["start"] = _to_hhmm(seg.pop("start_min"))
+            seg["end"] = _to_hhmm(seg.pop("end_min"))
+
         result["assignments"].append({
             "date": s0["date"],
             "location": s0["location"],
@@ -275,9 +357,15 @@ def run_solver(emp_availability: List[Dict[str, Any]], demand: List[Dict[str, An
             "assigned_employees": sorted(list(assigned_set)),
             "needs_experienced": bool(s0.get("needs_experienced", False)),
             "missing_minutes": int(missing_minutes),
+            "assigned_employees_detail": assigned_details,
+            "missing_segments": missing_segments,
         })
         if missing_minutes > 0:
-            result["uncovered"].append({"shift_id": sid0, "missing_minutes": int(missing_minutes)})
+            result["uncovered"].append({
+                "shift_id": sid0,
+                "missing_minutes": int(missing_minutes),
+                "missing_segments": missing_segments,
+            })
 
     for e in emps:
         tot_minutes = 0
