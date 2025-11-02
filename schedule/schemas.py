@@ -34,6 +34,28 @@ class SlotOut(Schema):
     start: str
     end: str
 
+
+class ShiftEmployeeSegmentOut(Schema):
+    start: str
+    end: str
+    minutes: int
+
+
+class ShiftAssignedEmployeeOut(Schema):
+    employee_id: str
+    employee_name: Optional[str] = ""
+    start: Optional[str] = None
+    end: Optional[str] = None
+    minutes: int
+    segments: List[ShiftEmployeeSegmentOut]
+
+
+class ShiftMissingSegmentOut(Schema):
+    start: str
+    end: str
+    missing: int
+    missing_minutes: int
+
 class AvailabilityOut(Schema):
     employee_id: str
     employee_name: str
@@ -63,6 +85,28 @@ class DemandDayOut(Schema):
     items: List[DemandSlotOut]
     content_hash: Optional[str] = None
 
+class ShiftEmployeeSegmentIn(Schema):
+    start: str
+    end: str
+    minutes: Optional[int] = None
+
+
+class ShiftAssignedEmployeeIn(Schema):
+    employee_id: str
+    employee_name: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    minutes: Optional[int] = None
+    segments: Optional[List[ShiftEmployeeSegmentIn]] = None
+
+
+class ShiftMissingSegmentIn(Schema):
+    start: str
+    end: str
+    missing: int
+    missing_minutes: Optional[int] = None
+
+
 class ScheduleShiftOut(Schema):
     id: str
     date: str
@@ -73,6 +117,8 @@ class ScheduleShiftOut(Schema):
     assigned_employees: List[str]
     needs_experienced: bool
     missing_minutes: int
+    assigned_employees_detail: Optional[List[ShiftAssignedEmployeeOut]] = None
+    missing_segments: Optional[List[ShiftMissingSegmentOut]] = None
 
 class ScheduleFullOut(Schema):
     assignments: List[ScheduleShiftOut]
@@ -90,6 +136,8 @@ class ShiftUpdateIn(Schema):
     needs_experienced: Optional[bool] = None
     missing_minutes: Optional[int] = None
     confirmed: Optional[bool] = None
+    assigned_employees_detail: Optional[List[ShiftAssignedEmployeeIn]] = None
+    missing_segments: Optional[List[ShiftMissingSegmentIn]] = None
 
 class ShiftOut(Schema):
     id: str
@@ -103,6 +151,8 @@ class ShiftOut(Schema):
     missing_minutes: int
     confirmed: bool
     user_edited: bool
+    assigned_employees_detail: Optional[List[ShiftAssignedEmployeeOut]] = None
+    missing_segments: Optional[List[ShiftMissingSegmentOut]] = None
 
 # ---- Special events (rules + special days) ----
 class EventRuleIn(Schema):

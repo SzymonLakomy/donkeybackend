@@ -1,9 +1,10 @@
 from types import SimpleNamespace
+from datetime import date
 
 from django.test import TestCase, override_settings
 
 from accounts.models import Company, User
-from schedule.models import DefaultDemand, CompanyLocation
+from schedule.models import DefaultDemand, CompanyLocation, Availability, Demand
 from schedule.api import (
     _get_default_template,
     save_default_demand,
@@ -11,7 +12,9 @@ from schedule.api import (
     list_locations,
     create_location,
     get_default_demand_week,
+    _ensure_schedule_for_demand,
 )
+from schedule.solver import run_solver
 from schedule.schemas import (
     DemandShiftTemplateIn,
     DefaultDemandIn,
@@ -139,3 +142,114 @@ class DefaultDemandTests(TestCase):
         self.assertEqual(defaults[2]["items"][0]["demand"], 5)
         self.assertTrue(defaults[3]["inherited"])
         self.assertEqual(defaults[3]["items"][0]["demand"], 2)
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class SolverResultTests(TestCase):
+    def test_run_solver_provides_assignment_details_and_missing_segments(self):
+        emp_availability = [
+            {
+                "employee_id": "1",
+                "employee_name": "Jan",
+                "date": "2025-01-01",
+                "experienced": False,
+                "hours_min": 0,
+                "hours_max": 600,
+                "available_slots": [{"start": "08:00", "end": "10:00"}],
+            },
+            {
+                "employee_id": "2",
+                "employee_name": "Ola",
+                "date": "2025-01-01",
+                "experienced": False,
+                "hours_min": 0,
+                "hours_max": 600,
+                "available_slots": [{"start": "09:00", "end": "10:00"}],
+            },
+        ]
+        demand = [
+            {
+                "date": "2025-01-01",
+                "location": "Main",
+                "start": "08:00",
+                "end": "10:00",
+                "demand": 2,
+                "needs_experienced": False,
+            }
+        ]
+
+        result = run_solver(emp_availability=emp_availability, demand=demand)
+
+        self.assertEqual(len(result["assignments"]), 1)
+        assignment = result["assignments"][0]
+        self.assertEqual(assignment["missing_minutes"], 60)
+        self.assertTrue(assignment["missing_segments"])
+        missing = assignment["missing_segments"][0]
+        self.assertEqual(missing["start"], "08:00")
+        self.assertEqual(missing["end"], "09:00")
+        self.assertEqual(missing["missing"], 1)
+
+        details = {entry["employee_id"]: entry for entry in assignment["assigned_employees_detail"]}
+        self.assertIn("1", details)
+        self.assertEqual(details["1"]["start"], "08:00")
+        self.assertEqual(details["1"]["end"], "10:00")
+        self.assertEqual(details["1"]["minutes"], 120)
+        self.assertTrue(details["1"]["segments"])
+        self.assertEqual(details["2"]["start"], "09:00")
+        self.assertEqual(details["2"]["end"], "10:00")
+        self.assertEqual(details["2"]["minutes"], 60)
+
+        self.assertTrue(result["uncovered"])
+        uncovered = result["uncovered"][0]
+        self.assertIn("missing_segments", uncovered)
+        self.assertEqual(uncovered["missing_segments"][0]["end"], "09:00")
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class ScheduleDetailPersistenceTests(TestCase):
+    def test_generated_shifts_store_assignment_details(self):
+        shift_date = date(2025, 1, 1)
+        demand = Demand.objects.create(
+            name="Test",
+            raw_payload=[
+                {
+                    "date": shift_date.isoformat(),
+                    "location": "Main",
+                    "start": "08:00",
+                    "end": "10:00",
+                    "demand": 2,
+                    "needs_experienced": False,
+                }
+            ],
+            content_hash="persist-detail-test",
+            date_from=shift_date,
+            date_to=shift_date,
+        )
+
+        Availability.objects.create(
+            employee_id="1",
+            employee_name="Jan",
+            date=shift_date,
+            available_slots=[{"start": "08:00", "end": "10:00"}],
+        )
+        Availability.objects.create(
+            employee_id="2",
+            employee_name="Ola",
+            date=shift_date,
+            available_slots=[{"start": "09:00", "end": "10:00"}],
+        )
+
+        assignments, summary = _ensure_schedule_for_demand(demand, force=True)
+
+        self.assertTrue(assignments)
+        first = assignments[0]
+        self.assertTrue(first["assigned_employees_detail"])
+        self.assertTrue(first["missing_segments"])
+
+        shift = demand.shifts.first()
+        self.assertIsNotNone(shift)
+        self.assertIn("assigned_employees_detail", shift.meta)
+        self.assertIn("missing_segments", shift.meta)
+        meta_details = {entry["employee_id"]: entry for entry in shift.meta["assigned_employees_detail"]}
+        self.assertEqual(meta_details["1"]["employee_name"], "Jan")
+        self.assertEqual(shift.meta["missing_segments"][0]["missing"], 1)
