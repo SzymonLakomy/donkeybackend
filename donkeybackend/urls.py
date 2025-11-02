@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from donkeybackend.api import api, combined_openapi_schema
 
@@ -13,6 +13,7 @@ urlpatterns = [
 
     # DRF app endpoints
     path("api/accounts/", include("accounts.urls")),
+    path("api/hr/", include("hr.urls")),
 
     # Ninja API (includes /api/docs and /api/schedule/*)
     path("api/", api.urls),

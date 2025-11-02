@@ -12,6 +12,7 @@ rest_framework_simplejwt
 dotenv
 drf_spectacular~=0.28.0
 djangorestframework-simplejwt
+celery~=5.3.6
 
 psycopg2-binary
 jsonschema~=4.24.0
