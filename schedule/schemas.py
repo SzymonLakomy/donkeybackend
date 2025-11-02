@@ -73,10 +73,17 @@ class DemandSlotOut(Schema):
     needs_experienced: bool
 
 
+class DemandShiftTemplateIn(Schema):
+    start: str
+    end: str
+    demand: int
+    needs_experienced: Optional[bool] = False
+
+
 class DemandDayIn(Schema):
     date: str
     location: Optional[str] = None
-    items: Optional[List["DemandShiftTemplateIn"]] = None
+    items: Optional[List[DemandShiftTemplateIn]] = None
 
 
 class DemandDayOut(Schema):
@@ -84,6 +91,7 @@ class DemandDayOut(Schema):
     location: str
     items: List[DemandSlotOut]
     content_hash: Optional[str] = None
+
 
 class ShiftEmployeeSegmentIn(Schema):
     start: str
@@ -191,11 +199,6 @@ class SpecialDayOut(Schema):
     active: bool
 
 # ---- Generation helpers ----
-class DemandShiftTemplateIn(Schema):
-    start: str
-    end: str
-    demand: int
-    needs_experienced: Optional[bool] = False
 
 
 class DefaultDemandIn(Schema):
