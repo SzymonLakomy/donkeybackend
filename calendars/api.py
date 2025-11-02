@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router
@@ -33,6 +34,22 @@ def _ensure_authenticated(request) -> None:
         raise HttpError(401, "Unauthorized")
 
 
+def _get_request_company(request):
+    _ensure_authenticated(request)
+    company = getattr(request.user, "company", None)
+    if not company:
+        raise HttpError(400, "User is not assigned to a company")
+    return company
+
+
+def _company_scope(model_cls, company):
+    company_id = getattr(company, "id", None)
+    scope = Q(company=company)
+    if company_id is not None:
+        scope |= Q(company__isnull=True)
+    return model_cls.objects.filter(scope)
+
+
 def _normalize_dt(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
         return value
@@ -50,6 +67,7 @@ def _validate_range(start, end) -> None:
 def _serialize_calendar_event(obj: CalendarEvent) -> Dict[str, Any]:
     return {
         "id": obj.id,
+        "company_id": obj.company_id,
         "employee_id": obj.employee_id,
         "title": obj.title,
         "start_at": timezone.localtime(obj.start_at),
@@ -66,6 +84,7 @@ def _serialize_calendar_event(obj: CalendarEvent) -> Dict[str, Any]:
 def _serialize_medical_event(obj: MedicalCheckEvent) -> Dict[str, Any]:
     return {
         "id": obj.id,
+        "company_id": obj.company_id,
         "employee_id": obj.employee_id,
         "title": obj.title,
         "start_at": timezone.localtime(obj.start_at),
@@ -83,6 +102,7 @@ def _serialize_medical_event(obj: MedicalCheckEvent) -> Dict[str, Any]:
 def _serialize_external_calendar(obj: ExternalCalendarConnection) -> Dict[str, Any]:
     return {
         "id": obj.id,
+        "company_id": obj.company_id,
         "name": obj.name,
         "provider": obj.provider,
         "employee_id": obj.employee_id or None,
@@ -99,22 +119,43 @@ def _serialize_external_calendar(obj: ExternalCalendarConnection) -> Dict[str, A
 @api.post("/events", response=CalendarEventOut)
 @transaction.atomic
 def create_calendar_event(request, payload: CalendarEventIn):
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
-    if payload.category not in _ALLOWED_EVENT_CATEGORIES:
+    category = payload.category or CalendarEvent.CATEGORY_SCHEDULE
+    if category not in _ALLOWED_EVENT_CATEGORIES:
         raise HttpError(400, "Unsupported event category")
 
-    start = _normalize_dt(payload.start_at)
-    end = _normalize_dt(payload.end_at)
+    normalized_start = _normalize_dt(payload.start_at)
+    normalized_end = _normalize_dt(payload.end_at)
+
+    if normalized_start and normalized_end:
+        start = normalized_start
+        end = normalized_end
+    elif normalized_start and not normalized_end:
+        start = normalized_start
+        end = start + timedelta(hours=1)
+    elif not normalized_start and normalized_end:
+        end = normalized_end
+        start = end - timedelta(hours=1)
+    else:
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+
     _validate_range(start, end)
 
+    employee_id = (payload.employee_id or str(getattr(request.user, "id", "")) or "").strip()
+    if not employee_id:
+        raise HttpError(400, "Unable to determine employee context")
+
+    title = (payload.title or "Wydarzenie").strip() or "Wydarzenie"
     event = CalendarEvent.objects.create(
-        employee_id=payload.employee_id.strip(),
-        title=payload.title.strip(),
+        company=company,
+        employee_id=employee_id,
+        title=title,
         description=(payload.description or "").strip(),
         start_at=start,
         end_at=end,
-        category=payload.category,
+        category=category,
         location=(payload.location or "").strip(),
         color=(payload.color or "").strip(),
     )
@@ -130,10 +171,10 @@ def list_calendar_events(
     end_to: Optional[datetime] = None,
     limit: int = 200,
 ) -> List[Dict[str, Any]]:
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
     limit = max(1, min(limit, 500))
-    qs = CalendarEvent.objects.all().order_by("start_at", "id")
+    qs = _company_scope(CalendarEvent, company).order_by("start_at", "id")
 
     if employee_id:
         qs = qs.filter(employee_id=employee_id)
@@ -155,24 +196,46 @@ def list_calendar_events(
 @api.post("/medical", response=MedicalEventOut)
 @transaction.atomic
 def create_medical_event(request, payload: MedicalEventIn):
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
-    if payload.status not in _ALLOWED_MEDICAL_STATUSES:
+    status = payload.status or MedicalCheckEvent.STATUS_PLANNED
+    if status not in _ALLOWED_MEDICAL_STATUSES:
         raise HttpError(400, "Unsupported medical event status")
 
-    start = _normalize_dt(payload.start_at)
-    end = _normalize_dt(payload.end_at)
+    normalized_start = _normalize_dt(payload.start_at)
+    normalized_end = _normalize_dt(payload.end_at)
+
+    if normalized_start and normalized_end:
+        start = normalized_start
+        end = normalized_end
+    elif normalized_start and not normalized_end:
+        start = normalized_start
+        end = start + timedelta(hours=1)
+    elif not normalized_start and normalized_end:
+        end = normalized_end
+        start = end - timedelta(hours=1)
+    else:
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+
     _validate_range(start, end)
 
+    employee_id = (payload.employee_id or str(getattr(request.user, "id", "")) or "").strip()
+    if not employee_id:
+        raise HttpError(400, "Unable to determine employee context")
+
+    title = (payload.title or "Badanie").strip() or "Badanie"
+
     medical_event = MedicalCheckEvent.objects.create(
-        employee_id=payload.employee_id.strip(),
-        title=payload.title.strip(),
+        company=company,
+        employee_id=employee_id,
+        title=title,
         description=(payload.description or "").strip(),
         exam_type=(payload.exam_type or "").strip(),
         start_at=start,
         end_at=end,
         location=(payload.location or "").strip(),
-        status=payload.status,
+        status=status,
         notes=(payload.notes or "").strip(),
     )
     return _serialize_medical_event(medical_event)
@@ -187,10 +250,10 @@ def list_medical_events(
     end_to: Optional[datetime] = None,
     limit: int = 200,
 ) -> List[Dict[str, Any]]:
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
     limit = max(1, min(limit, 500))
-    qs = MedicalCheckEvent.objects.all().order_by("start_at", "id")
+    qs = _company_scope(MedicalCheckEvent, company).order_by("start_at", "id")
 
     if employee_id:
         qs = qs.filter(employee_id=employee_id)
@@ -211,20 +274,26 @@ def list_medical_events(
 @api.post("/sources", response=ExternalCalendarOut)
 @transaction.atomic
 def create_external_calendar(request, payload: ExternalCalendarIn):
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
-    if payload.provider not in _ALLOWED_PROVIDERS:
+    provider = payload.provider or ExternalCalendarConnection.PROVIDER_OTHER
+    if provider not in _ALLOWED_PROVIDERS:
         raise HttpError(400, "Unsupported provider")
 
     last_synced_at = _normalize_dt(payload.last_synced_at) if payload.last_synced_at else None
 
+    name = (payload.name or provider.title()).strip() or provider.title()
+
+    owner_id = (payload.employee_id or str(getattr(request.user, "id", "")) or "").strip()
+
     connection = ExternalCalendarConnection.objects.create(
-        name=payload.name.strip(),
-        provider=payload.provider,
-        employee_id=(payload.employee_id or "").strip(),
+        company=company,
+        name=name,
+        provider=provider,
+        employee_id=owner_id,
         external_id=(payload.external_id or "").strip(),
         sync_token=(payload.sync_token or "").strip(),
-        settings=payload.settings or {},
+        settings=dict(payload.settings or {}),
         active=payload.active,
         last_synced_at=last_synced_at,
     )
@@ -238,10 +307,10 @@ def list_external_calendars(
     active: Optional[bool] = None,
     limit: int = 100,
 ) -> List[Dict[str, Any]]:
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
     limit = max(1, min(limit, 200))
-    qs = ExternalCalendarConnection.objects.all().order_by("-updated_at", "id")
+    qs = _company_scope(ExternalCalendarConnection, company).order_by("-updated_at", "id")
 
     if provider:
         if provider not in _ALLOWED_PROVIDERS:
@@ -258,9 +327,12 @@ def list_external_calendars(
 @api.post("/sources/{source_id}/sync", response=ExternalCalendarOut)
 @transaction.atomic
 def mark_calendar_synced(request, source_id: int, payload: ExternalCalendarSyncIn):
-    _ensure_authenticated(request)
+    company = _get_request_company(request)
 
-    connection = get_object_or_404(ExternalCalendarConnection, pk=source_id)
+    connection = get_object_or_404(
+        _company_scope(ExternalCalendarConnection, company),
+        pk=source_id,
+    )
 
     updated = False
     if payload.sync_token is not None:

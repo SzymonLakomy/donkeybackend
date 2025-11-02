@@ -12,6 +12,13 @@ class CalendarEvent(models.Model):
         (CATEGORY_TRAINING, "Training"),
     ]
 
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        related_name="calendar_events",
+        null=True,
+        blank=True,
+    )
     employee_id = models.CharField(max_length=128, db_index=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
@@ -48,6 +55,13 @@ class MedicalCheckEvent(models.Model):
         (STATUS_CANCELLED, "Cancelled"),
     ]
 
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        related_name="medical_events",
+        null=True,
+        blank=True,
+    )
     employee_id = models.CharField(max_length=128, db_index=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
@@ -85,6 +99,13 @@ class ExternalCalendarConnection(models.Model):
         (PROVIDER_OTHER, "Other"),
     ]
 
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        related_name="external_calendars",
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=255)
     provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_OTHER, db_index=True)
     employee_id = models.CharField(max_length=128, blank=True, default="", help_text="Optional owner of the connection")

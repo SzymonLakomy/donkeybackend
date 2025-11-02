@@ -5,11 +5,11 @@ from ninja import Schema
 
 
 class CalendarEventIn(Schema):
-    employee_id: str
-    title: str
-    start_at: datetime
-    end_at: datetime
-    category: Literal["schedule", "leave", "training"]
+    employee_id: Optional[str] = None
+    title: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    category: Optional[Literal["schedule", "leave", "training"]] = None
     description: Optional[str] = None
     location: Optional[str] = None
     color: Optional[str] = None
@@ -17,31 +17,33 @@ class CalendarEventIn(Schema):
 
 class CalendarEventOut(CalendarEventIn):
     id: int
+    company_id: Optional[int]
     created_at: datetime
     updated_at: datetime
 
 
 class MedicalEventIn(Schema):
-    employee_id: str
-    title: str
-    start_at: datetime
-    end_at: datetime
+    employee_id: Optional[str] = None
+    title: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
     exam_type: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
-    status: Literal["planned", "confirmed", "completed", "cancelled"] = "planned"
+    status: Optional[Literal["planned", "confirmed", "completed", "cancelled"]] = "planned"
     notes: Optional[str] = None
 
 
 class MedicalEventOut(MedicalEventIn):
     id: int
+    company_id: Optional[int]
     created_at: datetime
     updated_at: datetime
 
 
 class ExternalCalendarIn(Schema):
-    name: str
-    provider: Literal["ics", "google", "outlook", "other"] = "other"
+    name: Optional[str] = None
+    provider: Optional[Literal["ics", "google", "outlook", "other"]] = "other"
     employee_id: Optional[str] = None
     external_id: Optional[str] = None
     sync_token: Optional[str] = None
@@ -52,6 +54,7 @@ class ExternalCalendarIn(Schema):
 
 class ExternalCalendarOut(ExternalCalendarIn):
     id: int
+    company_id: Optional[int]
     created_at: datetime
     updated_at: datetime
 
