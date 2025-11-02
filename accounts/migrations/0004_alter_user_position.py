@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="users",
                 to="accounts.position",
+                db_column="position_id",  # <- wskazujemy faktyczną kolumnę w bazie
             ),
         ),
     ]
