@@ -108,6 +108,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+
 class WorkplaceConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
