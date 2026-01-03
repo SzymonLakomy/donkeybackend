@@ -3,6 +3,7 @@ from rest_framework import generics, status, viewsets, filters
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema
@@ -216,7 +217,7 @@ class PositionViewSet(viewsets.ModelViewSet):
         # Automatycznie przypisuje company z zalogowanego użytkownika
         company = self.request.user.company
         if not company:
-            raise serializers.ValidationError({"detail": "User does not belong to any company."})
+            raise ValidationError({"detail": "User does not belong to any company."})
         serializer.save(company=company)
 
 class CompanyUserListView(generics.ListAPIView):
