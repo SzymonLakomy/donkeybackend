@@ -23,6 +23,8 @@ from .serializers import (
     WorkplaceConfigSerializer,
     AttendanceEventSerializer,
     AttendanceStatusSerializer,
+    AttendanceHistorySerializer,
+    AttendanceCorrectionSerializer,
 )
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -257,3 +259,87 @@ class CompanyUserDetailView(generics.RetrieveUpdateAPIView):
             return User.objects.filter(
                 Q(company=self.request.user.company) & ~Q(role='owner')  # Menedżer nie widzi właścicieli
             )
+
+
+class AttendanceHistoryView(generics.ListAPIView):
+    """
+    API endpoint do wyświetlania historii zdarzeń obecności.
+    Menedżerowie widzą wszystkich pracowników firmy, pracownicy tylko swoje zdarzenia.
+    """
+    serializer_class = AttendanceHistorySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['user__first_name', 'user__last_name', 'user__email', 'type']
+    ordering_fields = ['timestamp', 'created_at', 'type']
+    ordering = ['-timestamp']  # Domyślne sortowanie po timestamp malejąco
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Menedżerowie i właściciele widzą wszystkich pracowników swojej firmy
+        if user.role in ['manager', 'owner']:
+            queryset = AttendanceEvent.objects.filter(user__company=user.company)
+        else:
+            # Zwykli pracownicy widzą tylko swoje zdarzenia
+            queryset = AttendanceEvent.objects.filter(user=user)
+
+        # Filtrowanie po user_id jeśli podano w query params
+        user_id = self.request.query_params.get('user_id', None)
+        if user_id and user.role in ['manager', 'owner']:
+            queryset = queryset.filter(user__id=user_id)
+
+        # Filtrowanie po dacie jeśli podano w query params
+        date_from = self.request.query_params.get('date_from', None)
+        date_to = self.request.query_params.get('date_to', None)
+
+        if date_from:
+            queryset = queryset.filter(timestamp__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(timestamp__lte=date_to)
+
+        return queryset
+
+
+class AttendanceCorrectionView(APIView):
+    """
+    API endpoint do ręcznego dodawania korekt obecności.
+    Tylko menedżerowie i właściciele mają dostęp.
+    """
+    permission_classes = [IsAuthenticated, IsManager]
+    serializer_class = AttendanceCorrectionSerializer
+
+    @extend_schema(request=AttendanceCorrectionSerializer, responses=AttendanceEventSerializer)
+    def post(self, request):
+        serializer = AttendanceCorrectionSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        user_id = serializer.validated_data['user_id']
+        event_type = serializer.validated_data['type']
+        timestamp = serializer.validated_data['timestamp']
+
+        # Pobierz użytkownika
+        try:
+            user = User.objects.get(id=user_id, company=request.user.company)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "Użytkownik nie istnieje lub nie należy do Twojej firmy."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Utwórz zdarzenie korekcyjne
+        # Dla korekt manualnych ustawiamy latitude i longitude na 0 lub null,
+        # i is_valid na True (bo to korekta manualna zatwierdzona przez menedżera)
+        event = AttendanceEvent.objects.create(
+            user=user,
+            type=event_type,
+            timestamp=timestamp,
+            latitude=0,
+            longitude=0,
+            is_valid=True  # Korekty manualne są domyślnie ważne
+        )
+
+        return Response(
+            AttendanceEventSerializer(event).data,
+            status=status.HTTP_201_CREATED
+        )
+

@@ -4,7 +4,8 @@ from .views import (
     LoginView, RegisterUserView, RegisterCompanyView, 
     CompanyCodeView, CompanyCodeResetView,
     PositionViewSet, CompanyUserListView, CompanyUserDetailView,
-    WorkplaceConfigView, AttendanceEventView, AttendanceStatusView
+    WorkplaceConfigView, AttendanceEventView, AttendanceStatusView,
+    AttendanceHistoryView, AttendanceCorrectionView
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -33,4 +34,6 @@ urlpatterns = [
     path("workplace/config/", WorkplaceConfigView.as_view(), name="workplace-config"),
     path("attendance/event/", AttendanceEventView.as_view(), name="attendance-event"),
     path("attendance/status/", AttendanceStatusView.as_view(), name="attendance-status"),
+    path("attendance/history/", AttendanceHistoryView.as_view(), name="attendance-history"),
+    path("attendance/correction/", AttendanceCorrectionView.as_view(), name="attendance-correction"),
 ]
