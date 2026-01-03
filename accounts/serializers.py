@@ -139,6 +139,21 @@ class PositionSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'created_at']
         read_only_fields = ['created_at']
 
+    def validate(self, data):
+        request = self.context.get('request')
+        name = data.get('name')
+
+        if name and request and request.user and not request.user.is_anonymous and request.user.company:
+            # Check if a position with this name already exists in the company
+            # Exclude the current instance if updating
+            queryset = Position.objects.filter(company=request.user.company, name=name)
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                raise serializers.ValidationError({"name": "Stanowisko o tej nazwie już istnieje w Twojej firmie."})
+        return data
+
 class UserListSerializer(serializers.ModelSerializer):
     position_name = serializers.CharField(source='position.name', read_only=True)
     
@@ -186,4 +201,3 @@ class UserDetailSerializer(serializers.ModelSerializer):
             return role
         # Inne przypadki nie są dozwolone
         raise serializers.ValidationError("Niedozwolona zmiana roli.")
-
