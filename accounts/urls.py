@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     LoginView, RegisterUserView, RegisterCompanyView, 
     CompanyCodeView, CompanyCodeResetView,
-    PositionViewSet, CompanyUserListView, CompanyUserDetailView
+    PositionViewSet, CompanyUserListView, CompanyUserDetailView,
+    WorkplaceConfigView, AttendanceEventView, AttendanceStatusView
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -27,4 +28,9 @@ urlpatterns = [
     path("", include(router.urls)),
     path("employees/", CompanyUserListView.as_view(), name="company-users-list"),
     path("employees/<int:pk>/", CompanyUserDetailView.as_view(), name="company-user-detail"),
+
+    # Attendance endpoints
+    path("workplace/config/", WorkplaceConfigView.as_view(), name="workplace-config"),
+    path("attendance/event/", AttendanceEventView.as_view(), name="attendance-event"),
+    path("attendance/status/", AttendanceStatusView.as_view(), name="attendance-status"),
 ]

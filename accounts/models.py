@@ -13,6 +13,12 @@ class Company(models.Model):
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=8, unique=True, default=gen_company_code)
     nip = models.CharField(max_length=20, blank=True, null=True)
+
+    # Konfiguracja lokalizacji (Workplace Config)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    radius = models.IntegerField(default=150, help_text="Promień w metrach")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -74,4 +80,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         return f"{self.first_name} {self.last_name}"
 
 
+class AttendanceEvent(models.Model):
+    EVENT_TYPE_CHOICES = [
+        ('check_in', 'Check In'),
+        ('check_out', 'Check Out'),
+    ]
 
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='attendance_events')
+    type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+    timestamp = models.DateTimeField()
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    is_valid = models.BooleanField(default=False, help_text="Czy zdarzenie jest w zasięgu miejsca pracy")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.type} at {self.timestamp}"

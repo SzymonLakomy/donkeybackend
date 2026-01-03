@@ -1,5 +1,3 @@
-from django.shortcuts import render
-
 # Create your views here.
 from rest_framework import generics, status, viewsets, filters
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -8,8 +6,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema
+import math
 
-from .models import gen_company_code, User, Position
+from .models import gen_company_code, User, Position, AttendanceEvent
 from .permissions import IsManager, IsManagerForOwnCompany, CannotPromoteToOwner
 
 from .serializers import (
@@ -20,7 +19,24 @@ from .serializers import (
     UserListSerializer,
     UserDetailSerializer,
     CompanyCodeSerializer,
+    WorkplaceConfigSerializer,
+    AttendanceEventSerializer,
+    AttendanceStatusSerializer,
 )
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371000  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_phi / 2.0) ** 2 + \
+        math.cos(phi1) * math.cos(phi2) * \
+        math.sin(delta_lambda / 2.0) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    return R * c
 
 class RegisterCompanyView(generics.CreateAPIView):
     permission_classes = [AllowAny]
@@ -71,6 +87,100 @@ class CompanyCodeResetView(APIView):
         company.save(update_fields=["code"])
         return Response({"company_code": new_code})
 
+
+class WorkplaceConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WorkplaceConfigSerializer
+
+    @extend_schema(responses=WorkplaceConfigSerializer)
+    def get(self, request):
+        company = request.user.company
+        if not company:
+             return Response({"detail": "User has no company"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = WorkplaceConfigSerializer(company)
+        return Response(serializer.data)
+
+
+class AttendanceEventView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AttendanceEventSerializer
+
+    @extend_schema(request=AttendanceEventSerializer, responses=AttendanceEventSerializer)
+    def post(self, request):
+        serializer = AttendanceEventSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        company = user.company
+
+        if not company:
+             return Response({"detail": "User has no company"}, status=status.HTTP_400_BAD_REQUEST)
+
+        lat = serializer.validated_data['latitude']
+        lon = serializer.validated_data['longitude']
+
+        # Validate distance
+        if company.latitude is None or company.longitude is None:
+             # If company has no location set, we mark as invalid but maybe still save?
+             # Or reject? The requirement says "Backend powinien ponownie zweryfikować odległość"
+             # If config is missing, we can't verify. Let's reject.
+             return Response({"detail": "Company location not configured."}, status=status.HTTP_400_BAD_REQUEST)
+
+        distance = haversine_distance(
+            float(lat), float(lon),
+            float(company.latitude), float(company.longitude)
+        )
+        is_valid = distance <= company.radius
+
+        event = AttendanceEvent.objects.create(
+            user=user,
+            type=serializer.validated_data['type'],
+            timestamp=serializer.validated_data['timestamp'],
+            latitude=lat,
+            longitude=lon,
+            is_valid=is_valid
+        )
+
+        if not is_valid:
+             return Response(
+                 {
+                     "detail": "Location is outside of workplace radius.",
+                     "distance": distance,
+                     "radius": company.radius
+                 },
+                 status=status.HTTP_400_BAD_REQUEST
+             )
+
+        return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+
+class AttendanceStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AttendanceStatusSerializer
+
+    @extend_schema(responses=AttendanceStatusSerializer)
+    def get(self, request):
+        user = request.user
+        last_event = AttendanceEvent.objects.filter(user=user).order_by('-timestamp').first()
+
+        is_working = False
+        last_event_time = None
+        last_event_type = None
+
+        if last_event:
+            is_working = (last_event.type == 'check_in')
+            last_event_time = last_event.timestamp
+            last_event_type = last_event.type
+
+        data = {
+            "is_working": is_working,
+            "last_event_time": last_event_time,
+            "last_event_type": last_event_type
+        }
+        return Response(data)
+
+
 # Widoki dla menedżera do zarządzania pracownikami
 
 class PositionViewSet(viewsets.ModelViewSet):
@@ -87,6 +197,10 @@ class PositionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Zwraca tylko stanowiska z firmy zalogowanego użytkownika
         return Position.objects.filter(company=self.request.user.company)
+
+    def perform_create(self, serializer):
+        # Automatycznie przypisuje company z zalogowanego użytkownika
+        serializer.save(company=self.request.user.company)
 
 class CompanyUserListView(generics.ListAPIView):
     """

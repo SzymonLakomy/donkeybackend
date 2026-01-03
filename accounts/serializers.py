@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
-from .models import User, Company, Position
+from .models import User, Company, Position, AttendanceEvent
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -99,18 +99,37 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         user = self.user
         data["user"] = {
-            "id": user.id,
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "full_name": getattr(user, "full_name", f"{user.first_name} {user.last_name}"),
             "role": user.role,
             "company_id": user.company_id,
-            "company_name": user.company.name if getattr(user, "company_id", None) else None,
-            "is_active": user.is_active,
-            "is_staff": user.is_staff,
         }
         return data
+
+
+class WorkplaceConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = ['latitude', 'longitude', 'radius']
+
+
+class AttendanceEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AttendanceEvent
+        fields = ['type', 'latitude', 'longitude', 'timestamp']
+
+    def validate(self, data):
+        # Walidacja odległości będzie w widoku lub tutaj
+        # Ale tutaj nie mamy dostępu do request.user.company łatwo, chyba że przez context
+        return data
+
+
+class AttendanceStatusSerializer(serializers.Serializer):
+    is_working = serializers.BooleanField()
+    last_event_time = serializers.DateTimeField(allow_null=True)
+    last_event_type = serializers.CharField(allow_null=True)
+
 
 # Nowe serializery dla menedżera
 
@@ -119,11 +138,6 @@ class PositionSerializer(serializers.ModelSerializer):
         model = Position
         fields = ['id', 'name', 'created_at']
         read_only_fields = ['created_at']
-    
-    def create(self, validated_data):
-        # Dodaje company z kontekstu
-        validated_data['company'] = self.context['request'].user.company
-        return super().create(validated_data)
 
 class UserListSerializer(serializers.ModelSerializer):
     position_name = serializers.CharField(source='position.name', read_only=True)
