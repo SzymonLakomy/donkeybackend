@@ -101,6 +101,18 @@ class WorkplaceConfigView(APIView):
         serializer = WorkplaceConfigSerializer(company)
         return Response(serializer.data)
 
+    @extend_schema(request=WorkplaceConfigSerializer, responses=WorkplaceConfigSerializer)
+    def post(self, request):
+        company = request.user.company
+        if not company:
+             return Response({"detail": "User has no company"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Allow partial updates (e.g. just radius)
+        serializer = WorkplaceConfigSerializer(company, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 class AttendanceEventView(APIView):
     permission_classes = [IsAuthenticated]
@@ -196,11 +208,16 @@ class PositionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Zwraca tylko stanowiska z firmy zalogowanego użytkownika
+        if not self.request.user.company:
+            return Position.objects.none()
         return Position.objects.filter(company=self.request.user.company)
 
     def perform_create(self, serializer):
         # Automatycznie przypisuje company z zalogowanego użytkownika
-        serializer.save(company=self.request.user.company)
+        company = self.request.user.company
+        if not company:
+            raise serializers.ValidationError({"detail": "User does not belong to any company."})
+        serializer.save(company=company)
 
 class CompanyUserListView(generics.ListAPIView):
     """
