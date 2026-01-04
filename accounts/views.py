@@ -25,6 +25,7 @@ from .serializers import (
     AttendanceStatusSerializer,
     AttendanceHistorySerializer,
     AttendanceCorrectionSerializer,
+    AttendanceCorrectionResponseSerializer,
 )
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -121,7 +122,7 @@ class AttendanceEventView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = AttendanceEventSerializer
 
-    @extend_schema(request=AttendanceEventSerializer, responses=AttendanceEventSerializer)
+    @extend_schema(request=AttendanceEventSerializer, responses={201: {"type": "object", "properties": {"id": {"type": "string"}, "status": {"type": "string"}}}})
     def post(self, request):
         serializer = AttendanceEventSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -132,21 +133,33 @@ class AttendanceEventView(APIView):
         if not company:
              return Response({"detail": "User has no company"}, status=status.HTTP_400_BAD_REQUEST)
 
-        lat = serializer.validated_data['latitude']
-        lon = serializer.validated_data['longitude']
+        lat = serializer.validated_data.get('latitude')
+        lon = serializer.validated_data.get('longitude')
 
-        # Validate distance
-        if company.latitude is None or company.longitude is None:
-             # If company has no location set, we mark as invalid but maybe still save?
-             # Or reject? The requirement says "Backend powinien ponownie zweryfikować odległość"
-             # If config is missing, we can't verify. Let's reject.
-             return Response({"detail": "Company location not configured."}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate distance if coordinates provided
+        is_valid = False
+        if lat and lon:
+            if company.latitude is None or company.longitude is None:
+                return Response({"detail": "Company location not configured."}, status=status.HTTP_400_BAD_REQUEST)
 
-        distance = haversine_distance(
-            float(lat), float(lon),
-            float(company.latitude), float(company.longitude)
-        )
-        is_valid = distance <= company.radius
+            distance = haversine_distance(
+                float(lat), float(lon),
+                float(company.latitude), float(company.longitude)
+            )
+            is_valid = distance <= company.radius
+
+            if not is_valid:
+                return Response(
+                    {
+                        "detail": "Location is outside of workplace radius.",
+                        "distance": distance,
+                        "radius": company.radius
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            # No coordinates provided - still valid (e.g., remote work)
+            is_valid = True
 
         event = AttendanceEvent.objects.create(
             user=user,
@@ -154,20 +167,12 @@ class AttendanceEventView(APIView):
             timestamp=serializer.validated_data['timestamp'],
             latitude=lat,
             longitude=lon,
-            is_valid=is_valid
+            is_valid=is_valid,
+            is_correction=False,
+            status='approved'
         )
 
-        if not is_valid:
-             return Response(
-                 {
-                     "detail": "Location is outside of workplace radius.",
-                     "distance": distance,
-                     "radius": company.radius
-                 },
-                 status=status.HTTP_400_BAD_REQUEST
-             )
-
-        return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
+        return Response({"id": str(event.id), "status": "success"}, status=status.HTTP_201_CREATED)
 
 
 class AttendanceStatusView(APIView):
@@ -180,18 +185,15 @@ class AttendanceStatusView(APIView):
         last_event = AttendanceEvent.objects.filter(user=user).order_by('-timestamp').first()
 
         is_working = False
-        last_event_time = None
-        last_event_type = None
+        last_activity = None
 
         if last_event:
             is_working = (last_event.type == 'check_in')
-            last_event_time = last_event.timestamp
-            last_event_type = last_event.type
+            last_activity = last_event.timestamp
 
         data = {
             "is_working": is_working,
-            "last_event_time": last_event_time,
-            "last_event_type": last_event_type
+            "last_activity": last_activity
         }
         return Response(data)
 
@@ -263,83 +265,57 @@ class CompanyUserDetailView(generics.RetrieveUpdateAPIView):
 
 class AttendanceHistoryView(generics.ListAPIView):
     """
-    API endpoint do wyświetlania historii zdarzeń obecności.
-    Menedżerowie widzą wszystkich pracowników firmy, pracownicy tylko swoje zdarzenia.
+    API endpoint do wyświetlania historii zdarzeń obecności zalogowanego użytkownika.
     """
     serializer_class = AttendanceHistorySerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['user__first_name', 'user__last_name', 'user__email', 'type']
+    filter_backends = [filters.OrderingFilter]
     ordering_fields = ['timestamp', 'created_at', 'type']
     ordering = ['-timestamp']  # Domyślne sortowanie po timestamp malejąco
 
     def get_queryset(self):
-        user = self.request.user
-
-        # Menedżerowie i właściciele widzą wszystkich pracowników swojej firmy
-        if user.role in ['manager', 'owner']:
-            queryset = AttendanceEvent.objects.filter(user__company=user.company)
-        else:
-            # Zwykli pracownicy widzą tylko swoje zdarzenia
-            queryset = AttendanceEvent.objects.filter(user=user)
-
-        # Filtrowanie po user_id jeśli podano w query params
-        user_id = self.request.query_params.get('user_id', None)
-        if user_id and user.role in ['manager', 'owner']:
-            queryset = queryset.filter(user__id=user_id)
-
-        # Filtrowanie po dacie jeśli podano w query params
-        date_from = self.request.query_params.get('date_from', None)
-        date_to = self.request.query_params.get('date_to', None)
-
-        if date_from:
-            queryset = queryset.filter(timestamp__gte=date_from)
-        if date_to:
-            queryset = queryset.filter(timestamp__lte=date_to)
-
-        return queryset
+        # Zwracamy tylko zdarzenia zalogowanego użytkownika
+        return AttendanceEvent.objects.filter(user=self.request.user)
 
 
 class AttendanceCorrectionView(APIView):
     """
     API endpoint do ręcznego dodawania korekt obecności.
-    Tylko menedżerowie i właściciele mają dostęp.
+    Dostępne dla wszystkich zalogowanych pracowników.
     """
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated]
     serializer_class = AttendanceCorrectionSerializer
 
-    @extend_schema(request=AttendanceCorrectionSerializer, responses=AttendanceEventSerializer)
+    @extend_schema(
+        request=AttendanceCorrectionSerializer,
+        responses={201: {"type": "object", "properties": {"id": {"type": "string"}, "status": {"type": "string"}}}}
+    )
     def post(self, request):
-        serializer = AttendanceCorrectionSerializer(data=request.data, context={'request': request})
+        serializer = AttendanceCorrectionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data['user_id']
+        user = request.user
         event_type = serializer.validated_data['type']
         timestamp = serializer.validated_data['timestamp']
+        reason = serializer.validated_data['reason']
+        latitude = serializer.validated_data.get('latitude')
+        longitude = serializer.validated_data.get('longitude')
 
-        # Pobierz użytkownika
-        try:
-            user = User.objects.get(id=user_id, company=request.user.company)
-        except User.DoesNotExist:
-            return Response(
-                {"detail": "Użytkownik nie istnieje lub nie należy do Twojej firmy."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Utwórz zdarzenie korekcyjne
-        # Dla korekt manualnych ustawiamy latitude i longitude na 0 lub null,
-        # i is_valid na True (bo to korekta manualna zatwierdzona przez menedżera)
+        # Utwórz zdarzenie korekcyjne ze statusem pending_approval
         event = AttendanceEvent.objects.create(
             user=user,
             type=event_type,
             timestamp=timestamp,
-            latitude=0,
-            longitude=0,
-            is_valid=True  # Korekty manualne są domyślnie ważne
+            latitude=latitude,
+            longitude=longitude,
+            is_valid=False,  # Korekty czekają na zatwierdzenie
+            is_correction=True,
+            correction_reason=reason,
+            status='pending_approval'
         )
 
         return Response(
-            AttendanceEventSerializer(event).data,
+            {"id": str(event.id), "status": "pending_approval"},
             status=status.HTTP_201_CREATED
         )
 

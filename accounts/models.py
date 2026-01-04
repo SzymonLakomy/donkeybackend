@@ -86,12 +86,29 @@ class AttendanceEvent(models.Model):
         ('check_out', 'Check Out'),
     ]
 
+    CORRECTION_REASON_CHOICES = [
+        ('gps_error', 'GPS Error'),
+        ('no_phone', 'No Phone'),
+        ('remote_work', 'Remote Work'),
+        ('forgot', 'Forgot'),
+        ('other', 'Other'),
+    ]
+
+    STATUS_CHOICES = [
+        ('approved', 'Approved'),
+        ('pending_approval', 'Pending Approval'),
+        ('rejected', 'Rejected'),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='attendance_events')
     type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
     timestamp = models.DateTimeField()
-    latitude = models.DecimalField(max_digits=9, decimal_places=6)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     is_valid = models.BooleanField(default=False, help_text="Czy zdarzenie jest w zasięgu miejsca pracy")
+    is_correction = models.BooleanField(default=False, help_text="Czy to jest korekta manualna")
+    correction_reason = models.CharField(max_length=20, choices=CORRECTION_REASON_CHOICES, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='approved')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

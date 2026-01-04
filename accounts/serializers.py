@@ -128,43 +128,33 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
 
 class AttendanceStatusSerializer(serializers.Serializer):
     is_working = serializers.BooleanField()
-    last_event_time = serializers.DateTimeField(allow_null=True)
-    last_event_type = serializers.CharField(allow_null=True)
+    last_activity = serializers.DateTimeField(allow_null=True)
 
 
 class AttendanceHistorySerializer(serializers.ModelSerializer):
     """Serializer dla historii zdarzeń obecności"""
-    user_name = serializers.SerializerMethodField()
 
     class Meta:
         model = AttendanceEvent
-        fields = ['id', 'user', 'user_name', 'type', 'timestamp', 'latitude',
-                  'longitude', 'is_valid', 'created_at']
+        fields = ['id', 'timestamp', 'type', 'latitude', 'longitude',
+                  'is_correction', 'correction_reason', 'status']
         read_only_fields = fields
 
-    def get_user_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}"
 
 
 class AttendanceCorrectionSerializer(serializers.Serializer):
-    """Serializer dla ręcznych korekt obecności"""
-    user_id = serializers.IntegerField(required=True)
-    type = serializers.ChoiceField(choices=AttendanceEvent.EVENT_TYPE_CHOICES, required=True)
+    """Serializer dla ręcznych korekt obecności - dostępny dla wszystkich pracowników"""
     timestamp = serializers.DateTimeField(required=True)
-    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    type = serializers.ChoiceField(choices=AttendanceEvent.EVENT_TYPE_CHOICES, required=True)
+    reason = serializers.ChoiceField(choices=AttendanceEvent.CORRECTION_REASON_CHOICES, required=True)
+    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
 
-    def validate_user_id(self, value):
-        """Sprawdza czy użytkownik istnieje i należy do tej samej firmy"""
-        request = self.context.get('request')
-        if not request or not request.user.company:
-            raise serializers.ValidationError("Brak przypisanej firmy.")
 
-        try:
-            user = User.objects.get(id=value, company=request.user.company)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Użytkownik nie istnieje lub nie należy do Twojej firmy.")
-
-        return value
+class AttendanceCorrectionResponseSerializer(serializers.Serializer):
+    """Serializer dla odpowiedzi po utworzeniu korekty"""
+    id = serializers.IntegerField()
+    status = serializers.CharField()
 
 
 # Nowe serializery dla menedżera
