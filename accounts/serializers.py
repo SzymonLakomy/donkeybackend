@@ -99,7 +99,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Use the default validation to get tokens first
         data = super().validate(attrs)
         user = self.user
-        data["user_id"] = user.id
         data["user"] = {
             "id": user.id,
             "email": user.email,
