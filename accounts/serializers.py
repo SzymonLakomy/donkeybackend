@@ -104,6 +104,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "last_name": user.last_name,
             "role": user.role,
             "company_id": user.company_id,
+            "user_id": user.id,
         }
         return data
 
