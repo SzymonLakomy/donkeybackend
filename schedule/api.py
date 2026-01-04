@@ -24,6 +24,7 @@ from .schemas import (
     CompanyLocationOut,
     BulkAvailabilityIn,
     AvailabilityOut,
+    SimpleDayAvailabilityOut,
     DemandDayIn,
     DemandDayOut,
     DemandSlotOut,
@@ -256,6 +257,54 @@ def list_availability(
     next_off = offset + limit if offset + limit < count else None
     prev_off = offset - limit if offset > 0 else None
     return {"count": count, "next": next_off, "previous": prev_off, "results": results}
+
+
+@api.get(
+    "/availability/mobile",
+    response=List[SimpleDayAvailabilityOut],
+    openapi_extra={
+        "summary": "Get availability for mobile app (simplified format)",
+        "description": "Returns availability data in a simplified format for mobile app consumption."
+    }
+)
+def get_availability_mobile(
+    request,
+    employee_id: str,
+    date_from: date_type,
+    date_to: date_type,
+) -> List[SimpleDayAvailabilityOut]:
+    """
+    Endpoint dla aplikacji mobilnej - zwraca dyspozycyjność w uproszczonym formacie.
+    Zwraca listę obiektów z datą i dostępnymi slotami czasowymi.
+    """
+    if not request.user or not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    # Pobierz wszystkie rekordy w zakresie dat
+    availabilities = Availability.objects.filter(
+        employee_id=str(employee_id),
+        date__gte=date_from,
+        date__lte=date_to
+    ).order_by("date")
+
+    result = []
+    for avail in availabilities:
+        # Konwertuj available_slots do formatu SlotOut
+        slots = []
+        if avail.available_slots and isinstance(avail.available_slots, list):
+            for slot in avail.available_slots:
+                if isinstance(slot, dict) and 'start' in slot and 'end' in slot:
+                    slots.append({
+                        "start": slot["start"],
+                        "end": slot["end"]
+                    })
+
+        result.append({
+            "date": avail.date.isoformat(),
+            "available_slots": slots
+        })
+
+    return result
 
 
 # ===================== DEMAND & SCHEDULE =====================

@@ -35,6 +35,12 @@ class SlotOut(Schema):
     end: str
 
 
+class SimpleDayAvailabilityOut(Schema):
+    """Simplified availability for mobile app - one day with slots"""
+    date: str  # ISO format: YYYY-MM-DD
+    available_slots: List[SlotOut]
+
+
 class ShiftEmployeeSegmentOut(Schema):
     start: str
     end: str
