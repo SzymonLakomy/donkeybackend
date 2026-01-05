@@ -202,7 +202,7 @@ class AttendanceStatusView(APIView):
 
 class PositionViewSet(viewsets.ModelViewSet):
     """
-    API endpoint dla zarządzania stanowiskami w firmie.
+    Endpoint API do zarządzania stanowiskami w firmie.
     Tylko menedżerowie i właściciele mają dostęp.
     """
     queryset = Position.objects.all()
@@ -226,7 +226,7 @@ class PositionViewSet(viewsets.ModelViewSet):
 
 class CompanyUserListView(generics.ListAPIView):
     """
-    API endpoint do wyświetlania wszystkich użytkowników z firmy menedżera.
+    Endpoint API do wyświetlania wszystkich użytkowników z firmy menedżera.
     """
     serializer_class = UserListSerializer
     permission_classes = [IsAuthenticated, IsManager]
@@ -247,7 +247,7 @@ class CompanyUserListView(generics.ListAPIView):
 
 class CompanyUserDetailView(generics.RetrieveUpdateAPIView):
     """
-    API endpoint do wyświetlania i aktualizacji szczegółów użytkownika.
+    Endpoint API do wyświetlania i aktualizacji szczegółów użytkownika.
     """
     serializer_class = UserDetailSerializer
     permission_classes = [IsAuthenticated, IsManager, IsManagerForOwnCompany, CannotPromoteToOwner]
@@ -265,7 +265,7 @@ class CompanyUserDetailView(generics.RetrieveUpdateAPIView):
 
 class AttendanceHistoryView(generics.ListAPIView):
     """
-    API endpoint do wyświetlania historii zdarzeń obecności zalogowanego użytkownika.
+    Endpoint API do wyświetlania historii zdarzeń obecności zalogowanego użytkownika.
     """
     serializer_class = AttendanceHistorySerializer
     permission_classes = [IsAuthenticated]
@@ -280,7 +280,7 @@ class AttendanceHistoryView(generics.ListAPIView):
 
 class AttendanceCorrectionView(APIView):
     """
-    API endpoint do ręcznego dodawania korekt obecności.
+    Endpoint API do ręcznego dodawania korekt obecności.
     Dostępne dla wszystkich zalogowanych pracowników.
     """
     permission_classes = [IsAuthenticated]

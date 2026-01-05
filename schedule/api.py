@@ -155,8 +155,8 @@ def _validate_slots(slots: list[dict]) -> list[dict]:
     "/availability/bulk",
     response=List[AvailabilityOut],
     openapi_extra={
-        "summary": "Upsert availability for one employee (bulk by days)",
-        "description": "Request body is a single object with employee context and an 'availabilities' array. The legacy doc that showed a root-level array is incorrect.",
+        "summary": "Upsert dostępności dla pracownika (zbiorczo po dniach)",
+        "description": "Request body to pojedynczy obiekt z kontekstem pracownika i tablicą 'availabilities'. Stara dokumentacja pokazująca tablicę na poziomie głównym jest nieprawidłowa.",
         "requestBody": {
             "required": True,
             "content": {
@@ -263,8 +263,8 @@ def list_availability(
     "/availability/mobile",
     response=List[SimpleDayAvailabilityOut],
     openapi_extra={
-        "summary": "Get availability for mobile app (simplified format)",
-        "description": "Returns availability data in a simplified format for mobile app consumption."
+        "summary": "Pobierz dostępności dla aplikacji mobilnej (format uproszczony)",
+        "description": "Zwraca dane dostępności w uproszczonym formacie do konsumpcji przez aplikację mobilną."
     }
 )
 def get_availability_mobile(
@@ -384,7 +384,7 @@ def _normalize_weekday(value: Optional[int]) -> Optional[int]:
     "/locations",
     response=List[CompanyLocationOut],
     openapi_extra={
-        "summary": "Lista lokalizacji powiązanych z firmą",
+        "summary": "Pobierz listę lokalizacji powiązanych z firmą",
         "description": "Zwraca listę lokalizacji (restauracji) przypisanych do firmy zalogowanego użytkownika.",
     },
 )
@@ -407,7 +407,7 @@ def list_locations(request) -> List[dict]:
     "/locations",
     response=CompanyLocationOut,
     openapi_extra={
-        "summary": "Dodaj nową lokalizację",
+        "summary": "Utwórz nową lokalizację",
         "description": "Tworzy nową lokalizację (restaurację) przypisaną do firmy zalogowanego użytkownika.",
     },
 )
@@ -711,9 +711,8 @@ def _extract_location_from_payload(items: List[Dict[str, Any]]) -> str:
     "/demand/day",
     response=DemandDayOut,
     openapi_extra={
-        "summary": "Zapisz zapotrzebowanie na dzień",
-        "description": "Tworzy albo nadpisuje zapotrzebowanie dla wskazanej daty. Lokalizację bierzemy z użytkownika, ale można ją"
-        " podać w polu location. Jeśli nie przekażesz listy zmian użyjemy domyślnego wzoru restauracji.",
+        "summary": "Zapisz zapotrzebowanie na jeden dzień",
+        "description": "Tworzy lub nadpisuje zapotrzebowanie dla wskazanej daty. Lokalizację bierzemy z użytkownika, ale można ją podać w polu location. Jeśli nie przekażesz listy zmian użyjemy domyślnego wzoru restauracji.",
     },
 )
 @transaction.atomic
@@ -848,7 +847,7 @@ def get_day_demand(request, date: str, location: Optional[str] = None) -> Dict[s
     "/demand/default",
     response=DefaultDemandOut,
     openapi_extra={
-        "summary": "Ustaw domyślne zapotrzebowanie",
+        "summary": "Ustaw domyślne zapotrzebowanie dla restauracji",
         "description": "Zapisuje listę zmian jako domyślne zapotrzebowanie restauracji. Wykorzystujemy je gdy nie podasz własnej listy dla dnia.",
     },
 )
@@ -951,7 +950,7 @@ def get_default_demand_week(request, location: Optional[str] = None):
     "/demand/default",
     response=DefaultDemandOut,
     openapi_extra={
-        "summary": "Pobierz domyślne zapotrzebowanie",
+        "summary": "Pobierz domyślne zapotrzebowanie dla restauracji",
         "description": "Zwraca aktualny domyślny zestaw zmian dla restauracji. Możesz ograniczyć odpowiedź do wybranego dnia tygodnia.",
     },
 )
@@ -1347,7 +1346,7 @@ def get_day_schedule(request, day: str, location: Optional[str] = None) -> List[
     "/generate-day",
     response=GenerateResultOut,
     openapi_extra={
-        "summary": "Ułóż grafik na jeden dzień",
+        "summary": "Wygeneruj harmonogram na jeden dzień",
         "description": "Uruchamia solver dla podanej daty. Gdy lista zmian nie jest przesłana korzystamy z domyślnego zapotrzebowania.",
     },
 )
@@ -1417,7 +1416,7 @@ def generate_day(request, payload: GenerateDayIn):
     "/generate-range",
     response=GenerateResultOut,
     openapi_extra={
-        "summary": "Ułóż grafik na kilka dni",
+        "summary": "Wygeneruj harmonogram na zakres dat",
         "description": "Buduje grafik dla zakresu dat korzystając z podanej listy zmian lub domyślnego zapotrzebowania restauracji.",
     },
 )
