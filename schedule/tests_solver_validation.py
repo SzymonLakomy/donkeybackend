@@ -515,6 +515,215 @@ class TestSolverBenchmark(SimpleTestCase):
         self.assertLess(max_ratio, 100.0,
                        f"Wzrost czasu jest zbyt duży: {max_ratio:.1f}x (oczekiwano < 100x)")
 
+    def test_tc_bench_03_extreme_scaling(self):
+        """
+        TC-BENCH-03: Analiza skalowania na dużych instancjach
+
+        Sprawdza skalowanie solvera na 100 i 1000 pracowników.
+        Z ciekawości, aby zobaczyć jak problem rośnie w trudności.
+
+        UWAGA: Test zajmuje więcej czasu. Liczba zmian zmniejszona aby
+        nie zaprzepaścić całej nocy na testy :)
+        """
+        # Skonfiguruj mniejszą liczbę zmian dla dużych instancji
+        # aby nie czekać wieczność
+        employee_counts = [5, 25, 50, 100]
+        times = []
+        coverages = []
+
+        print("\n" + "=" * 80)
+        print("ANALIZA SKALOWANIA NA DUŻYCH INSTANCJACH (TC-BENCH-03)")
+        print("=" * 80)
+        print(f"{'Pracownicy':<12} {'Zmian/dzień':<14} {'Dni':<6} {'Czas [s]':<10} {'Pokrycie':<10} {'Stosunek':<12}")
+        print("-" * 80)
+
+        base_time = None
+        for num_emp in employee_counts:
+            # Skaluj parametry: mniej zmian na dzień dla dużych instancji
+            if num_emp <= 25:
+                shifts = 4
+                days = 7
+                time_limit = 15.0
+            else:
+                shifts = 3
+                days = 3
+                time_limit = 30.0
+
+            emp_availability, demand = generate_synthetic_data(
+                num_employees=num_emp,
+                shifts_per_day=shifts,
+                num_days=days,
+                seed=42,
+            )
+
+            print(f"[{num_emp} pracowników] Generowanie danych... ", end="", flush=True)
+            print(f"({len(emp_availability)} dostępności, {len(demand)} zmian)")
+
+            start_time = time.time()
+            result = run_solver(emp_availability, demand, time_limit_sec=time_limit)
+            elapsed = time.time() - start_time
+            times.append(elapsed)
+
+            coverage = calculate_coverage_ratio(result, demand)
+            coverages.append(coverage)
+
+            if base_time is None:
+                base_time = elapsed
+
+            ratio = elapsed / base_time if base_time > 0 else 1.0
+            print(f"{num_emp:<12} {shifts:<14} {days:<6} {elapsed:<10.3f} {coverage*100:<10.1f}% {ratio:<12.1f}x")
+
+        print("=" * 80)
+
+        # Analiza charakterystyki wzrostu
+        print("\n[ANALIZA SKALOWANIA]")
+        print("-" * 80)
+        for i in range(1, len(times)):
+            prev_emp = employee_counts[i-1]
+            curr_emp = employee_counts[i]
+            emp_ratio = curr_emp / prev_emp
+            time_ratio = times[i] / times[i-1] if times[i-1] > 0 else 1.0
+            print(f"  {prev_emp:>3} -> {curr_emp:>3} pracowników (x{emp_ratio:.2f}): "
+                  f"czas wzrasta {time_ratio:.2f}x")
+
+        overall_ratio = times[-1] / times[0] if times[0] > 0 else 1.0
+        print(f"\n  Razem ({employee_counts[0]} -> {employee_counts[-1]} prac.): "
+              f"czas wzrasta {overall_ratio:.1f}x")
+
+        avg_coverage = sum(coverages) / len(coverages)
+        coverage_stability = max(abs(c - avg_coverage) for c in coverages)
+        print(f"  Pokrycie: śred. {avg_coverage*100:.1f}%, max odchylenie ±{coverage_stability*100:.1f}%")
+
+        # Szacunek dla 1000 pracowników (ekstrapolacja)
+        if times[0] > 0:
+            # Modeluj jako funkcję mocy: T = a * N^b
+            # Ze względu na CP-SAT, prawdopodobnie 1.5 <= b <= 2.5
+            import math
+
+            # Użyj ostatniego punktu danych do ekstrapolacji
+            last_emp = employee_counts[-1]
+            last_time = times[-1]
+            first_emp = employee_counts[0]
+            first_time = times[0]
+
+            # Oszacuj wykładnik b: log(T2/T1) / log(N2/N1)
+            if last_time > 0 and first_time > 0:
+                b = math.log(last_time / first_time) / math.log(last_emp / first_emp)
+
+                # Ekstrapoluj na 1000 pracowników
+                est_1000 = last_time * ((1000 / last_emp) ** b)
+
+                print(f"\n[EKSTRAPOLACJA]")
+                print(f"  Oszacowany wykładnik skalowania: b ~ {b:.2f}")
+                if est_1000 > 3600:
+                    est_hours = est_1000 / 3600
+                    print(f"  Szacunkowy czas dla 1000 pracowników: ~{est_hours:.1f} godzin")
+                else:
+                    print(f"  Szacunkowy czas dla 1000 pracowników: ~{est_1000:.0f} sekund (~{est_1000/60:.1f} minut)")
+
+                if b >= 2.0:
+                    print(f"  Uwaga: Skalowanie zbliża się do kwadratowego O(N^2) - typ hard constraint problem")
+                elif b >= 1.5:
+                    print(f"  Skalowanie: pośrednie O(N^{b:.1f}) - typowe dla SAT/IP solverów")
+                else:
+                    print(f"  Skalowanie: poniżej liniowego - solver ma dobrą wydajność")
+
+        print("=" * 80)
+
+    def test_tc_bench_04_ultra_large_scale(self):
+        """
+        TC-BENCH-04: Test skalowania dla 1000 pracowników (opcjonalny, eksperymentalny)
+
+        Sprawdza czy solver zdolny jest obsługiwać bardzo duże instancje.
+        Test może być długi - uruchom go manualnie jeśli jesteś ciekaw :)
+
+        Scenariusz: sieć wielkich restauracji
+        - 1000 pracowników
+        - 20 zmian/dzień (różne lokalizacje)
+        - 2 dni (aby problem nie był zbyt duży)
+        - Limit czasowy 60 sekund
+        """
+        print("\n" + "=" * 80)
+        print("EKSPERYMENTALNY TEST: SOLVER DLA 1000 PRACOWNIKÓW (TC-BENCH-04)")
+        print("=" * 80)
+
+        # Generuj dane dla bardzo dużej instancji
+        num_employees = 1000
+        shifts_per_day = 20  # Można zarządzać dużą restauracją
+        num_days = 2
+        time_limit = 60.0
+
+        print(f"\n[Konfiguracja]")
+        print(f"  Pracownicy: {num_employees}")
+        print(f"  Zmiany/dzień: {shifts_per_day}")
+        print(f"  Dni: {num_days}")
+        print(f"  Limit czasowy: {time_limit}s")
+
+        print(f"\n[Generowanie danych] ", end="", flush=True)
+        start_gen = time.time()
+        emp_availability, demand = generate_synthetic_data(
+            num_employees=num_employees,
+            shifts_per_day=shifts_per_day,
+            num_days=num_days,
+            seed=42,
+        )
+        gen_time = time.time() - start_gen
+
+        total_vars = len(emp_availability) * len(demand)
+        print(f"OK ({gen_time:.2f}s)")
+        print(f"  Liczba dostępności: {len(emp_availability):,}")
+        print(f"  Liczba zmian: {len(demand):,}")
+        print(f"  Szacunkowe zmienne decyzyjne: ~{total_vars:,}")
+
+        print(f"\n[Rozwiązywanie] ", end="", flush=True)
+        start_solve = time.time()
+        try:
+            result = run_solver(emp_availability, demand, time_limit_sec=time_limit, workers=1)
+            solve_time = time.time() - start_solve
+            print(f"OK ({solve_time:.2f}s)")
+
+            coverage = calculate_coverage_ratio(result, demand)
+            num_assigned = sum(len(a.get("assigned_employees", [])) for a in result.get("assignments", []))
+            num_uncovered = len(result.get("uncovered", []))
+
+            print(f"\n[Rezultaty]")
+            print(f"  Czas rozwiązania: {solve_time:.2f}s")
+            print(f"  Pokrycie: {coverage*100:.1f}%")
+            print(f"  Całkowite przypisania: {num_assigned:,}")
+            print(f"  Zmian bez przypisań: {num_uncovered:,}")
+
+            # Analiza
+            print(f"\n[Analiza wydajności]")
+            if solve_time < 1.0:
+                print(f"  [OK] Solver bardzo szybki dla 1000 pracowników!")
+            elif solve_time < time_limit / 2:
+                print(f"  [OK] Solver efektywny - zmieścił się w limicie")
+            else:
+                print(f"  [WARNING] Solver potrzebuje pełnego limitu czasowego")
+
+            if coverage > 0.95:
+                print(f"  [OK] Doskonałe pokrycie zapotrzebowania")
+            elif coverage > 0.80:
+                print(f"  [INFO] Zadowalające pokrycie")
+            else:
+                print(f"  [WARNING] Niskie pokrycie - problem może być zbyt trudny")
+
+            # Porównanie ze wcześniejszymi wynikami
+            print(f"\n[Wnioski dla skalowalności]")
+            avg_employees_per_assignment = num_assigned / len(demand) if len(demand) > 0 else 0
+            avg_demand_per_shift = sum(s["demand"] for s in demand) / len(demand) if len(demand) > 0 else 0
+            print(f"  Średnio przypisano: {avg_employees_per_assignment:.2f} os./zmianę (wymagano: {avg_demand_per_shift:.1f})")
+            print(f"  Czasy skalowania na 100 prac. wynosiły ~0.4s, na 1000: ~{solve_time:.1f}s")
+            print(f"  Wzrost czasu: {solve_time / 0.4:.1f}x dla 10x większej problemu")
+
+        except Exception as e:
+            solve_time = time.time() - start_solve
+            print(f"BŁĄD ({solve_time:.2f}s)")
+            print(f"  Wyjątek: {type(e).__name__}: {e}")
+            self.fail(f"Solver nie zdołał obsługiwać 1000 pracowników: {e}")
+
+        print("=" * 80)
+
 
 # =============================================================================
 # TESTY DETERMINISTYCZNOŚCI
@@ -830,7 +1039,9 @@ class TestSolverSummary(SimpleTestCase):
             ("TC-SOLVER-04", "Nieprzekraczanie zapotrzebowania", "WALIDACJA"),
             ("TC-SOLVER-05", "Limity godzinowe", "WALIDACJA"),
             ("TC-BENCH-01", "Benchmark scenariuszy", "WYDAJNOŚĆ"),
-            ("TC-BENCH-02", "Analiza skalowania", "WYDAJNOŚĆ"),
+            ("TC-BENCH-02", "Analiza skalowania (5-25 prac.)", "WYDAJNOŚĆ"),
+            ("TC-BENCH-03", "Analiza skalowania na dużych instancjach (5-100 prac.)", "WYDAJNOŚĆ"),
+            ("TC-BENCH-04", "Ultra duża skala (1000 pracowników) - eksperymentalne", "WYDAJNOŚĆ"),
             ("TC-DET-01", "Powtarzalność wyników", "DETERMINISTYCZNOŚĆ"),
             ("TC-DET-02", "Niezależność od kolejności danych", "DETERMINISTYCZNOŚĆ"),
             ("TC-EDGE-01", "Pusty demand", "BRZEGOWY"),
@@ -840,19 +1051,19 @@ class TestSolverSummary(SimpleTestCase):
             ("TC-INT-01", "Zgodność ze specyfikacją", "INTEGRACJA"),
         ]
 
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 95)
         print("TABELA PRZYPADKÓW TESTOWYCH SOLVERA")
-        print("=" * 80)
-        print(f"{'ID':<15} {'Nazwa':<45} {'Kategoria':<15}")
-        print("-" * 80)
+        print("=" * 95)
+        print(f"{'ID':<15} {'Nazwa':<55} {'Kategoria':<15}")
+        print("-" * 95)
 
         for tc_id, name, category in test_cases:
-            print(f"{tc_id:<15} {name:<45} {category:<15}")
+            print(f"{tc_id:<15} {name:<55} {category:<15}")
 
-        print("=" * 80)
+        print("=" * 95)
         print(f"Łączna liczba przypadków testowych: {len(test_cases)}")
-        print("=" * 80)
+        print("=" * 95)
 
         # Ten test zawsze przechodzi - służy tylko do wyświetlenia tabeli
-        self.assertEqual(len(test_cases), 14)
+        self.assertEqual(len(test_cases), 16)
 

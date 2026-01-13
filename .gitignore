@@ -15,3 +15,18 @@ debug_toolbar/
 # Other Python files
 *.pyc
 *.pyo
+
+# Secrets / env files
+.env
+.env.*
+!.env.example
+
+# Virtual environments (common names)
+.venv/
+venv/
+ENV/
+
+# OS / tooling
+.vscode/
+.idea/
+.DS_Store
