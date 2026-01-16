@@ -34,7 +34,7 @@ SECRET_KEY = 'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443', "https://majawitosz.szymonlakomy.pl/"]
 
 APPEND_SLASH = False
 
@@ -49,6 +49,7 @@ CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS = [
     "https://donkey.todayautomate.com",
     "https://donkeyfrontend.vercel.app",
     "http://141.145.204.102",
+    "https://majawitosz.szymonlakomy.pl/"
 ]
 
 
@@ -210,7 +211,7 @@ AUTH_USER_MODEL = "accounts.User"
 #open api
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "GastroTime API",
+    "TITLE": "Dokumentacja API System zarządzania personelem w branży gastronomicznej",
     "DESCRIPTION": "Autoryzacja użytkowników, zarządzanie firmami i więcej",
     "VERSION": "1.0.0",
 
