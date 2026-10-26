@@ -251,7 +251,12 @@ for s in orig_shifts:
 
 # ====== WOŁANIE OPENAI (STRUCTURED OUTPUTS) ======
 def ask_openai_for_schedule(assign_mode: str) -> dict:
-    client = OpenAI(api_key="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")
+    if not API_KEY:
+        raise SystemExit(
+            "Brak OPENAI_API_KEY. Ustaw go w .env (wzór: .env.example); "
+            "klucza nie wolno wpisywać w kodzie ani commitować."
+        )
+    client = OpenAI(api_key=API_KEY)
 
     schema = SCHEDULE_SCHEMA_WHOLE if assign_mode == "whole" else SCHEDULE_SCHEMA_SEGMENTS
     user_prompt = build_user_prompt(assign_mode, employees, avail_records_prompt, shifts_prompt)
