@@ -30,3 +30,8 @@ ENV/
 .vscode/
 .idea/
 .DS_Store
+
+# Artefakty testow i statyki (generowane lokalnie)
+.coverage
+htmlcov/
+staticfiles/
