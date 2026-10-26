@@ -211,3 +211,143 @@ class ScheduleApiEndpointsTests(TestCase):
         self.assertEqual(self._get("/api/schedule/demand/999999").status_code, 404)
         self.assertEqual(self._get("/api/schedule/schedule/999999").status_code, 404)
         self.assertEqual(self._get(f"/api/schedule/schedule/999999/day/{DAYS[0]}").status_code, 404)
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class ScheduleApiBranchTests(TestCase):
+    """Galezie endpointow: fallback szablonu, paginacja, filtry dostepnosci, persist=False."""
+
+    def setUp(self):
+        response = self.client.post("/api/accounts/register-company", data=json.dumps({
+            "company_name": "Branch Co",
+            "nip": "1234567890",
+            "email": "branch@test.local",
+            "first_name": "Branch",
+            "last_name": "Owner",
+            "password": "haslo-testowe-123",
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 201, response.content[:300])
+
+        response = self.client.post("/api/accounts/login", data=json.dumps({
+            "email": "branch@test.local",
+            "password": "haslo-testowe-123",
+        }), content_type="application/json")
+        body = response.json()
+        self.token = body["access"]
+        self.employee_id = str(body["user"]["id"])
+
+        self.assertEqual(self._post("/api/schedule/locations", {"name": LOCATION}).status_code, 200)
+        self.assertEqual(self._post("/api/schedule/availability/bulk", {
+            "employee_id": self.employee_id,
+            "employee_name": "Branch Owner",
+            "experienced": True,
+            "hours_min": 0,
+            "hours_max": 60,
+            "availabilities": [
+                {"date": day, "available_slots": {"start": "08:00", "end": "20:00"}} for day in DAYS
+            ],
+        }).status_code, 200)
+
+    def _post(self, path, payload):
+        return self.client.post(path, data=json.dumps(payload), content_type="application/json",
+                                HTTP_AUTHORIZATION=f"Bearer {self.token}")
+
+    def _get(self, path):
+        return self.client.get(path, HTTP_AUTHORIZATION=f"Bearer {self.token}")
+
+    def _items(self):
+        return [{"start": "10:00", "end": "14:00", "demand": 1, "needs_experienced": False}]
+
+    def _save_weekday_template(self):
+        response = self._post("/api/schedule/demand/default", {
+            "location": LOCATION, "weekday": 0, "items": self._items(),
+        })
+        self.assertEqual(response.status_code, 200, response.content[:300])
+
+    def test_save_day_demand_uses_weekday_template_when_items_missing(self):
+        self._save_weekday_template()
+
+        response = self._post("/api/schedule/demand/day", {"date": DAYS[0], "location": LOCATION})
+
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        self.assertEqual(len(response.json()["items"]), 1)
+        self.assertEqual(response.json()["items"][0]["start"], "10:00")
+
+    def test_get_day_demand_falls_back_to_template(self):
+        self._save_weekday_template()
+
+        response = self._get(f"/api/schedule/demand/day?date={DAYS[0]}&location={LOCATION}")
+
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        body = response.json()
+        self.assertEqual(body["date"], DAYS[0])
+        self.assertTrue(body["items"], "brak zapotrzebowania powinien wrocic jako szablon tygodnia")
+
+    def test_list_demands_pagination(self):
+        self._post("/api/schedule/generate-range", {
+            "date_from": DAYS[0], "date_to": DAYS[-1], "location": LOCATION,
+            "persist": True, "force": True, "items": self._items(),
+        })
+
+        response = self._get("/api/schedule/demands?limit=1&offset=0")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertGreaterEqual(body["count"], 1)
+        self.assertEqual(len(body["results"]), 1)
+
+    def test_availability_list_filters_and_mobile_view(self):
+        response = self._get(
+            f"/api/schedule/availability?employee_id={self.employee_id}"
+            f"&date_from={DAYS[0]}&date_to={DAYS[0]}&only_with_slots=true"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+
+        response = self._get(
+            f"/api/schedule/availability/mobile?employee_id={self.employee_id}"
+            f"&date_from={DAYS[0]}&date_to={DAYS[-1]}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), len(DAYS))
+        self.assertEqual(response.json()[0]["available_slots"][0]["start"], "08:00")
+
+    def test_get_schedule_day_returns_only_that_day(self):
+        generated = self._post("/api/schedule/generate-range", {
+            "date_from": DAYS[0], "date_to": DAYS[-1], "location": LOCATION,
+            "persist": True, "force": True, "items": self._items(),
+        }).json()
+
+        response = self._get(f"/api/schedule/schedule/{generated['demand_id']}/day/{DAYS[0]}")
+
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        day = response.json()
+        self.assertEqual(len(day), 1)
+        self.assertEqual(day[0]["start"], "10:00")
+
+    def test_upsert_shift_partial_update(self):
+        generated = self._post("/api/schedule/generate-day", {
+            "date": DAYS[0], "location": LOCATION, "persist": True, "force": True, "items": self._items(),
+        }).json()
+
+        response = self._post("/api/schedule/schedule/shift", {
+            "id": generated["assignments"][0]["id"],
+            "needs_experienced": True,
+        })
+
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        body = response.json()
+        self.assertTrue(body["needs_experienced"])
+        self.assertTrue(body["user_edited"])
+
+    def test_generate_day_persist_false_does_not_write(self):
+        response = self._post("/api/schedule/generate-day", {
+            "date": DAYS[0], "location": LOCATION, "persist": False, "force": False,
+            "items": self._items(),
+        })
+
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        assignments = response.json()["assignments"]
+        self.assertEqual(len(assignments), 1)
+        self.assertTrue(assignments[0]["id"], "ad-hoc wynik tez musi miec id dla klienta")
+        self.assertEqual(ScheduleShift.objects.count(), 0, "persist=False nie zapisuje zmian")
