@@ -350,3 +350,107 @@ class AttendanceGeofenceTestCase(APITestCase):
         self.assertTrue(event.is_valid)
         self.assertIsNone(event.latitude)
 
+
+class AttendanceCorrectionFlowTests(APITestCase):
+    """BACKLOG P1-6: korekta czekajaca na akceptacje nie zmienia statusu; manager ja rozstrzyga."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Korekty Co", code="KOR00001")
+        self.other_company = Company.objects.create(name="Inna Co", code="INN00001")
+        self.manager = User.objects.create_user(
+            email="manager@kor.test", password="testpass123",
+            first_name="Manager", last_name="Kor", company=self.company, role="manager",
+        )
+        self.other_manager = User.objects.create_user(
+            email="manager@inn.test", password="testpass123",
+            first_name="Obcy", last_name="Manager", company=self.other_company, role="manager",
+        )
+        self.employee = User.objects.create_user(
+            email="worker@kor.test", password="testpass123",
+            first_name="Worker", last_name="Kor", company=self.company, role="employee",
+        )
+
+    def _approved_check_in(self):
+        return AttendanceEvent.objects.create(
+            user=self.employee, type="check_in", timestamp=timezone.now(),
+            is_valid=True, is_correction=False, status="approved",
+        )
+
+    def _pending_correction(self, event_type="check_out"):
+        response = self.client.post(reverse("attendance-correction"), {
+            "timestamp": timezone.now().isoformat(),
+            "type": event_type,
+            "reason": "forgot",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return AttendanceEvent.objects.get(id=response.json()["id"])
+
+    def test_pending_correction_does_not_flip_status(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        self._pending_correction("check_out")
+
+        response = self.client.get(reverse("attendance-status"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_working"], "korekta pending nie moze zakonczyc pracy")
+        self.assertEqual(response.json()["pending_corrections"], 1)
+
+    def test_manager_approves_correction(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve", "reason": "potwierdzone",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "approved")
+        self.assertTrue(correction.is_valid)
+
+        self.client.force_authenticate(user=self.employee)
+        status_body = self.client.get(reverse("attendance-status")).json()
+        self.assertFalse(status_body["is_working"], "zatwierdzony check-out konczy prace")
+        self.assertEqual(status_body["pending_corrections"], 0)
+
+    def test_manager_rejects_correction(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "reject",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "rejected")
+        self.assertFalse(correction.is_valid)
+
+    def test_employee_cannot_review_corrections(self):
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_foreign_manager_cannot_review_correction(self):
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.other_manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "pending_approval")
+
