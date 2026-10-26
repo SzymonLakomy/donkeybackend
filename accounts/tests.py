@@ -276,3 +276,77 @@ class WorkplaceConfigPermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["radius"], 100)
 
+
+class AttendanceGeofenceTestCase(APITestCase):
+    """BACKLOG P1-7: serwer liczy odleglosc i odrzuca check-in poza strefa."""
+
+    def setUp(self):
+        self.company = Company.objects.create(
+            name="Geo Attendance",
+            code="GEOATT01",
+            latitude=52.229676,
+            longitude=21.012229,
+            radius=150,
+        )
+        self.employee = User.objects.create_user(
+            email="worker@geo.test", password="testpass123",
+            first_name="Worker", last_name="Geo", company=self.company, role="employee",
+        )
+
+    def _event(self, **overrides):
+        payload = {
+            "type": "check_in",
+            "latitude": 52.229676,
+            "longitude": 21.012229,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload.update(overrides)
+        return self.client.post(reverse("attendance-event"), payload, format="json")
+
+    def test_check_in_inside_radius_is_accepted(self):
+        self.client.force_authenticate(user=self.employee)
+
+        response = self._event(latitude=52.229700, longitude=21.012300)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = AttendanceEvent.objects.get()
+        self.assertTrue(event.is_valid)
+        self.assertEqual(event.status, "approved")
+
+    def test_check_in_outside_radius_is_rejected(self):
+        self.client.force_authenticate(user=self.employee)
+
+        # ~1.1 km na polnoc od lokalu przy promieniu 150 m
+        response = self._event(latitude=52.239676, longitude=21.012229)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("outside of workplace radius", response.json()["detail"])
+        self.assertGreater(response.json()["distance"], 150)
+        self.assertFalse(AttendanceEvent.objects.exists())
+
+    def test_missing_company_location_rejects_coordinates(self):
+        self.company.latitude = None
+        self.company.longitude = None
+        self.company.save(update_fields=["latitude", "longitude"])
+        self.client.force_authenticate(user=self.employee)
+
+        response = self._event()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not configured", response.json()["detail"])
+        self.assertFalse(AttendanceEvent.objects.exists())
+
+    def test_event_without_coordinates_documents_remote_work_compromise(self):
+        """P1-5 (decyzja produktowa): brak wspolrzednych = zdarzenie poprawne, omija geofencje."""
+        self.client.force_authenticate(user=self.employee)
+
+        response = self.client.post(reverse("attendance-event"), {
+            "type": "check_in",
+            "timestamp": timezone.now().isoformat(),
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = AttendanceEvent.objects.get()
+        self.assertTrue(event.is_valid)
+        self.assertIsNone(event.latitude)
+
