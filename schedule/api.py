@@ -7,6 +7,7 @@ from ninja.errors import HttpError
 from datetime import datetime, date as date_type
 import hashlib
 import json
+import os
 
 from accounts.models import Company
 from .models import (
@@ -47,7 +48,7 @@ from .schemas import (
     GenerateResultOut,
 )
 from donkeybackend.security import DRFJWTAuth
-from .solver import run_solver
+from .solver import run_solver, SolverError
 
 api = Router(tags=["schedule"], auth=DRFJWTAuth())
 #api = Router(tags=["schedule"])
@@ -549,6 +550,7 @@ def _shift_base_dict(s: ScheduleShift) -> Dict[str, Any]:
         "missing_minutes": int(s.missing_minutes or 0),
         "assigned_employees_detail": list(meta_dict.get("assigned_employees_detail", [])),
         "missing_segments": list(meta_dict.get("missing_segments", [])),
+        "experience_violated": bool(meta_dict.get("experience_violated", False)),
     }
 
 
@@ -1087,6 +1089,35 @@ def _apply_special_rules_to_demand(items: List[Dict[str, Any]], date_from, date_
     return out
 
 
+def _solver_options() -> Dict[str, Any]:
+    """Nadpisania DEFAULT_OPTIONS z env (JSON), np. {"no_split_shifts": false}.
+
+    Pozwala stroic solver na produkcji bez zmiany kodu. Bledny JSON jest ignorowany,
+    zeby literowka w env nie zablokowala generowania grafiku.
+    """
+    raw = (os.getenv("SOLVER_OPTIONS_JSON") or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _safe_run_solver(emp_avail, demand_payload, previous=None) -> Dict[str, Any]:
+    """Uruchamia solver i zamienia SolverError na kontrolowany blad HTTP 422."""
+    try:
+        return run_solver(
+            emp_availability=emp_avail,
+            demand=demand_payload,
+            previous=previous,
+            options=_solver_options() or None,
+        )
+    except SolverError as exc:
+        raise HttpError(422, f"Nie udało się ułożyć grafiku (solver: {exc.status})")
+
+
 def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """Ensures schedule is generated for given demand; returns (assignments, summary) where
     summary contains uncovered/hours_summary when generation occurred. If schedule already existed,
@@ -1100,7 +1131,21 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
 
     # When forcing, clear existing
     if force and d.shifts.exists():
+        # Zapamietujemy poprzedni grafik PRZED usunieciem: solver dostaje go jako
+        # punkt odniesienia dla czlonu stabilnosci (mniej zmian dla pracownikow).
+        previous = [
+            {
+                "date": s.date.isoformat(),
+                "location": s.location,
+                "start": s.start,
+                "end": s.end,
+                "assigned_employees": list(s.assigned_employees or []),
+            }
+            for s in d.shifts.all()
+        ]
         d.shifts.all().delete()
+    else:
+        previous = None
 
     # Build availability input from DB for the demand date range
     avail_qs = Availability.objects.filter(date__gte=d.date_from, date__lte=d.date_to)
@@ -1120,7 +1165,7 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
     # Apply special rules (holidays/events) before solving
     demand_payload = _apply_special_rules_to_demand(d.raw_payload or [], d.date_from, d.date_to)
 
-    res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+    res = _safe_run_solver(emp_avail, demand_payload, previous=previous)
 
     # Persist assignments per day/shift
     ass = res.get("assignments", []) or []
@@ -1131,6 +1176,8 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
         meta_payload = {
             "uncovered": res.get("uncovered", []),
             "hours_summary": res.get("hours_summary", []),
+            "experience_violated": bool(a.get("experience_violated", False)),
+            "solver_status": res.get("status"),
         }
         if a.get("assigned_employees_detail") is not None:
             meta_payload["assigned_employees_detail"] = list(a.get("assigned_employees_detail") or [])
@@ -1163,6 +1210,8 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
         d.save(update_fields=["schedule_generated", "solved_at", "updated_at"]) 
 
     return _assignments_from_db(d), {
+        "status": res.get("status"),
+        "metrics": res.get("metrics", {}),
         "uncovered": res.get("uncovered", []),
         "hours_summary": res.get("hours_summary", []),
     } if to_create else None
@@ -1387,7 +1436,7 @@ def generate_day(request, payload: GenerateDayIn):
             emp_avail = _build_emp_availability(d.date_from, d.date_to)
             # Apply special rules only to day items
             demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt)
-            res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+            res = _safe_run_solver(emp_avail, demand_payload)
             return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
         # ensure schedule persisted
         assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
@@ -1405,7 +1454,7 @@ def generate_day(request, payload: GenerateDayIn):
     if payload.persist is False:
         emp_avail = _build_emp_availability(day_dt, day_dt)
         demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt)
-        res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+        res = _safe_run_solver(emp_avail, demand_payload)
         return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
 
     assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))
@@ -1469,7 +1518,7 @@ def generate_range(request, payload: GenerateRangeIn):
         # Compute ad-hoc without persisting
         emp_avail = _build_emp_availability(start, end)
         demand_payload = _apply_special_rules_to_demand(full_items, start, end)
-        res = run_solver(emp_availability=emp_avail, demand=demand_payload)
+        res = _safe_run_solver(emp_avail, demand_payload)
         return dict(demand_id=d.id, assignments=res.get("assignments", []), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
 
     assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force))

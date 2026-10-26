@@ -50,7 +50,7 @@ CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS = [
     "https://donkey.todayautomate.com",
     "https://donkeyfrontend.vercel.app",
     "http://141.145.204.102",
-    "https://majawitosz.szymonlakomy.pl/"
+    "https://majawitosz.szymonlakomy.pl",
 ]
 
 

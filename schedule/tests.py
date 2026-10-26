@@ -155,7 +155,7 @@ class SolverResultTests(TestCase):
                 "experienced": False,
                 "hours_min": 0,
                 "hours_max": 600,
-                "available_slots": [{"start": "08:00", "end": "10:00"}],
+                "available_slots": [{"start": "08:00", "end": "12:00"}],
             },
             {
                 "employee_id": "2",
@@ -164,7 +164,7 @@ class SolverResultTests(TestCase):
                 "experienced": False,
                 "hours_min": 0,
                 "hours_max": 600,
-                "available_slots": [{"start": "09:00", "end": "10:00"}],
+                "available_slots": [{"start": "09:00", "end": "12:00"}],
             },
         ]
         demand = [
@@ -172,7 +172,7 @@ class SolverResultTests(TestCase):
                 "date": "2025-01-01",
                 "location": "Main",
                 "start": "08:00",
-                "end": "10:00",
+                "end": "12:00",
                 "demand": 2,
                 "needs_experienced": False,
             }
@@ -180,6 +180,7 @@ class SolverResultTests(TestCase):
 
         result = run_solver(emp_availability=emp_availability, demand=demand)
 
+        # Ola jest dostępna od 09:00, więc pierwsza godzina zmiany zostaje nieobsadzona.
         self.assertEqual(len(result["assignments"]), 1)
         assignment = result["assignments"][0]
         self.assertEqual(assignment["missing_minutes"], 60)
@@ -192,12 +193,12 @@ class SolverResultTests(TestCase):
         details = {entry["employee_id"]: entry for entry in assignment["assigned_employees_detail"]}
         self.assertIn("1", details)
         self.assertEqual(details["1"]["start"], "08:00")
-        self.assertEqual(details["1"]["end"], "10:00")
-        self.assertEqual(details["1"]["minutes"], 120)
+        self.assertEqual(details["1"]["end"], "12:00")
+        self.assertEqual(details["1"]["minutes"], 240)
         self.assertTrue(details["1"]["segments"])
         self.assertEqual(details["2"]["start"], "09:00")
-        self.assertEqual(details["2"]["end"], "10:00")
-        self.assertEqual(details["2"]["minutes"], 60)
+        self.assertEqual(details["2"]["end"], "12:00")
+        self.assertEqual(details["2"]["minutes"], 180)
 
         self.assertTrue(result["uncovered"])
         uncovered = result["uncovered"][0]
@@ -253,3 +254,69 @@ class ScheduleDetailPersistenceTests(TestCase):
         meta_details = {entry["employee_id"]: entry for entry in shift.meta["assigned_employees_detail"]}
         self.assertEqual(meta_details["1"]["employee_name"], "Jan")
         self.assertEqual(shift.meta["missing_segments"][0]["missing"], 1)
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class SolverErrorHandlingTests(TestCase):
+    """Kontrakt API: SolverError nie moze wyciec jako 500 (BACKLOG P1-3)."""
+
+    def test_safe_run_solver_maps_solver_error_to_422(self):
+        from unittest.mock import patch
+
+        from ninja.errors import HttpError
+        from schedule.api import _safe_run_solver
+        from schedule.solver import SolverError
+
+        with patch("schedule.api.run_solver", side_effect=SolverError("INFEASIBLE")):
+            with self.assertRaises(HttpError) as ctx:
+                _safe_run_solver([], [])
+
+        self.assertEqual(ctx.exception.status_code, 422)
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class ScheduleRegenerationTests(TestCase):
+    """Regeneracja z `force=True` zapisuje metadane solvera i nie wywraca sie na `previous`."""
+
+    def test_force_regeneration_records_solver_metadata(self):
+        shift_date = date(2025, 1, 1)
+        demand = Demand.objects.create(
+            name="Regen",
+            raw_payload=[
+                {
+                    "date": shift_date.isoformat(),
+                    "location": "Main",
+                    "start": "08:00",
+                    "end": "12:00",
+                    "demand": 1,
+                    "needs_experienced": False,
+                }
+            ],
+            content_hash="regeneration-metadata-test",
+            date_from=shift_date,
+            date_to=shift_date,
+        )
+        for emp in ("1", "2"):
+            Availability.objects.create(
+                employee_id=emp,
+                employee_name=f"Pracownik {emp}",
+                date=shift_date,
+                available_slots=[{"start": "08:00", "end": "12:00"}],
+            )
+
+        _ensure_schedule_for_demand(demand, force=True)
+
+        shift = demand.shifts.first()
+        self.assertIsNotNone(shift)
+        self.assertIn(shift.meta.get("solver_status"), {"OPTIMAL", "FEASIBLE"})
+        self.assertIn("experience_violated", shift.meta)
+
+        # Druga regeneracja czyta poprzedni grafik (stabilnosc) i musi zakonczyc sie poprawnie.
+        assignments, summary = _ensure_schedule_for_demand(demand, force=True)
+
+        self.assertTrue(assignments)
+        self.assertIsNotNone(summary)
+        self.assertIn("status", summary)
+        self.assertEqual(len(assignments), 1)
+        self.assertEqual(len(assignments[0]["assigned_employees"]), 1,
+                         "popyt 1 powinien byc pokryty przez dokladnie jedna osobe")
