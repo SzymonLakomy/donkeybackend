@@ -20,6 +20,8 @@ DEFAULT_OPTIONS: Dict[str, Any] = {
     "no_split_shifts": True,       # zakaz dwoch nieprzylegajacych zmian w jednym dniu
     "min_rest_minutes": 660,       # 11h odpoczynku miedzy kolejnymi dniami
     "one_location_per_day": True,  # zakaz pracy w dwoch lokalach tego samego dnia
+    "shift_people_slack": 0,       # ile osob PONAD demand moze obsluzyc jedna zmiane (dzielenie)
+    "handoff_penalty": 300,        # kara za kazda osobe ponad demand (koszt przekazania zmiany)
     # --- godziny ---
     "weekly_hours": True,          # limity hours_min/max per tydzien (pro-rata)
     # --- wagi funkcji celu ---
@@ -322,10 +324,20 @@ def run_solver(emp_availability: List[Dict[str, Any]],
                 window = sl_list[t:t + ms]
                 m.Add(sum(x[(e, sl["id"])] for sl in window) >= ms * sv)
 
-    # co najwyzej `demand` roznych osob na jedna zmiane
+    # co najwyzej `demand` roznych osob na jedna zmiane (+ opcjonalny zapas na dzielenie zmiany)
+    people_slack = max(0, int(opts["shift_people_slack"]))
+    handoff_terms: List[Any] = []
     for s0 in orig_shifts:
         orig_id = s0["id"]
-        m.Add(sum(y[(e, orig_id)] for e in emps) <= int(s0["demand"]))
+        demand_i = int(s0["demand"])
+        people = [y[(e, orig_id)] for e in emps]
+        m.Add(sum(people) <= demand_i + people_slack)
+        if people_slack > 0 and int(opts["handoff_penalty"]) > 0:
+            # Kara za kazda osobe ponad zapotrzebowanie: dzielenie zmiany jest mozliwe,
+            # ale nie "za darmo" - solver siega po nie tylko wtedy, gdy zyskuje pokrycie.
+            extra = m.NewIntVar(0, people_slack, f"extra_{orig_id}")
+            m.Add(sum(people) - demand_i <= extra)
+            handoff_terms.append(int(opts["handoff_penalty"]) * extra)
 
     # ---------- 2. spojnosc x <-> y ----------
     for e in emps:
@@ -463,6 +475,7 @@ def run_solver(emp_availability: List[Dict[str, Any]],
     base_obj += [int(opts["overtime_penalty"]) * v for v in over_terms]
     base_obj += [int(opts["under_hours_penalty"]) * v for v in under_terms]
     base_obj += [int(opts["experience_penalty"]) * v for v in exp_viol.values()]
+    base_obj += handoff_terms
 
     # ---------- 9. faza 2: sprawiedliwosc, weekendy, stabilnosc ----------
     quality_obj: List[Any] = []
