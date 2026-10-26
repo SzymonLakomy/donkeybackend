@@ -1551,7 +1551,10 @@ def generate_range(request, payload: GenerateRangeIn):
         emp_avail = _build_emp_availability(start, end, company=company)
         demand_payload = _apply_special_rules_to_demand(full_items, start, end, company=company)
         res = _safe_run_solver(emp_avail, demand_payload)
-        return dict(demand_id=d.id, assignments=res.get("assignments", []), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
+        # `_with_ids` jest konieczne: bez `id` odpowiedz nie przechodzi walidacji
+        # schematu ScheduleShiftOut i endpoint zwracal 500 (persist=False uzywa front).
+        return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])),
+                    summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
 
     assignments, summary = _ensure_schedule_for_demand(d, force=bool(payload.force), company=company)
     return dict(demand_id=d.id, assignments=assignments, summary=summary)
@@ -1632,17 +1635,27 @@ def upsert_shift(request, payload: ShiftUpdateIn):
     meta_raw = s.meta or {}
     meta = dict(meta_raw) if isinstance(meta_raw, dict) else {}
     meta_changed = False
+
+    def _as_dicts(items) -> List[Dict[str, Any]]:
+        """Pydantic modele z payloadu musza stac sie dictami - inaczej JSONField
+        przy zapisie rzuca TypeError (wczesniej konczylo sie to bledem 500)."""
+        out: List[Dict[str, Any]] = []
+        for item in items or []:
+            if isinstance(item, dict):
+                out.append(item)
+            elif hasattr(item, "model_dump"):
+                out.append(item.model_dump())
+            elif hasattr(item, "dict"):
+                out.append(item.dict())
+            else:
+                out.append(dict(item))
+        return out
+
     if payload.assigned_employees_detail is not None:
-        try:
-            meta["assigned_employees_detail"] = list(payload.assigned_employees_detail or [])
-        except Exception:
-            meta["assigned_employees_detail"] = []
+        meta["assigned_employees_detail"] = _as_dicts(payload.assigned_employees_detail)
         meta_changed = True
     if payload.missing_segments is not None:
-        try:
-            meta["missing_segments"] = list(payload.missing_segments or [])
-        except Exception:
-            meta["missing_segments"] = []
+        meta["missing_segments"] = _as_dicts(payload.missing_segments)
         meta_changed = True
     if meta_changed:
         s.meta = meta
