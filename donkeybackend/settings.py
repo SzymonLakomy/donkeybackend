@@ -29,10 +29,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q'
+# Produkcja MUSI podac SECRET_KEY w env (osobny, losowy, >=50 znakow). Wartosc ponizej
+# to wylacznie fallback deweloperski - z nia kazdy, kto widzi repo, moze podpisac token JWT.
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip() or (
+    'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
+
+# Ustawienia HTTPS wlaczane swiadomie dopiero po potwierdzeniu, ze Nginx przekazuje
+# X-Forwarded-Proto. Bez tego lokalny runserver i testy nie moga korzystac z HTTP.
+if os.getenv("DJANGO_SECURE_SSL", "").strip().lower() in ("1", "true", "yes", "on"):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = os.getenv("SECURE_HSTS_PRELOAD", "").strip().lower() in ("1", "true", "yes", "on")
 
 # Django porownuje sam host (bez schematu i sciezki) - wpisy z "http://" nigdy nie pasuja.
 # Port podawaj tylko wtedy, gdy naprawde jest niestandardowy (np. mobile dev 8081).
@@ -227,6 +242,12 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Dokumentacja API System zarządzania personelem w branży gastronomicznej",
     "DESCRIPTION": "Autoryzacja użytkowników, zarządzanie firmami i więcej",
     "VERSION": "1.0.0",
+
+    # Bez tego drf-spectacular nazywa ten sam zestaw wyborow roznie w roznych miejscach
+    # (warning W001 przy `manage.py check --deploy`).
+    "ENUM_NAME_OVERRIDES": {
+        "CorrectionReasonEnum": "accounts.models.AttendanceEvent.CORRECTION_REASON_CHOICES",
+    },
 
     # available SwaggerUI configuration parameters
     # https://swagger.io/docs/open-source-tools/swagger-ui/usage/configuration/
