@@ -1,20 +1,25 @@
-Django~=5.2.4
-djangorestframework~=3.16.0
-dotenv~=0.9.9
-python-dotenv~=1.1.1
-Django~=5.2.4
-djangorestframework~=3.16.0
-markdown
-django-filter
-django-cors-headers~=4.7.0
-django-extensions
-rest_framework_simplejwt
-dotenv
-drf_spectacular~=0.28.0
-djangorestframework-simplejwt
+# Zaleznosci backendu. Instalacja: pip install -r requirements.txt
+# Uwaga: nie duplikuj pakietow - pip i tak rozwiaze wersje, ale duplikaty maskuja
+# konflikt (np. dwa wpisy Django z roznymi pinami).
 
-psycopg2-binary
-jsonschema~=4.24.0
-openai~=2.4.0
-ortools~=9.14.6206
+# --- rdzen ---
+Django~=5.2.4
+djangorestframework~=3.16.0
+djangorestframework-simplejwt
 django-ninja~=1.1.0
+django-cors-headers~=4.7.0
+django-filter
+django-extensions
+drf-spectacular~=0.28.0
+markdown
+
+# --- solver i walidacja ---
+ortools~=9.14.6206
+jsonschema~=4.24.0
+
+# --- baza i srodowisko ---
+psycopg2-binary
+python-dotenv~=1.1.1
+
+# --- eksperymenty AI (donkey_ai/, nieuzywane przez API) ---
+openai~=2.4.0

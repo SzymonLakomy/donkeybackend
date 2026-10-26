@@ -125,6 +125,7 @@ class ScheduleShiftOut(Schema):
     missing_minutes: int
     assigned_employees_detail: Optional[List[ShiftAssignedEmployeeOut]] = None
     missing_segments: Optional[List[ShiftMissingSegmentOut]] = None
+    experience_violated: Optional[bool] = False
 
 class ScheduleFullOut(Schema):
     assignments: List[ScheduleShiftOut]
@@ -159,6 +160,7 @@ class ShiftOut(Schema):
     user_edited: bool
     assigned_employees_detail: Optional[List[ShiftAssignedEmployeeOut]] = None
     missing_segments: Optional[List[ShiftMissingSegmentOut]] = None
+    experience_violated: Optional[bool] = False
 
 # ---- Special events (rules + special days) ----
 class EventRuleIn(Schema):

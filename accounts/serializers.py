@@ -131,6 +131,14 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
 class AttendanceStatusSerializer(serializers.Serializer):
     is_working = serializers.BooleanField()
     last_activity = serializers.DateTimeField(allow_null=True)
+    pending_corrections = serializers.IntegerField(required=False, default=0)
+
+
+class AttendanceCorrectionReviewSerializer(serializers.Serializer):
+    """Decyzja managera o korekcie obecnosci (BACKLOG P1-6)."""
+    id = serializers.IntegerField()
+    decision = serializers.ChoiceField(choices=["approve", "reject"])
+    reason = serializers.CharField(required=False, allow_blank=True)
 
 
 class AttendanceHistorySerializer(serializers.ModelSerializer):

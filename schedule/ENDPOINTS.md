@@ -1,47 +1,51 @@
-# Schedule API – szybki przegląd
+# Schedule API — szybki przegląd
 
-_Podstawowy prefiks wszystkich ścieżek to `/schedule`._
+Prefiks bazowy: **`/api/schedule`**. Każdy endpoint wymaga `Authorization: Bearer <access>` i działa **w granicach firmy** z tokenu (izolacja `company`).
+
+> **Podwójny prefiks:** router jest montowany pod `/schedule`, a trasy dotyczące konkretnego zapotrzebowania/zmiany mają w sobie własny człon `schedule`. Dlatego część ścieżek to `/api/schedule/schedule/...`, a część `/api/schedule/...` — to stan faktyczny, nie literówka.
 
 ## Lokalizacje
-- `GET /schedule/locations` – zwraca listę lokalizacji przypisanych do firmy zalogowanego użytkownika (identyfikator, nazwa, data utworzenia). Tylko te lokalizacje, które należą do danej firmy.
-- `POST /schedule/locations` – tworzy nową lokalizację (restaurację) powiązaną z firmą zalogowanego użytkownika.
+- `GET /api/schedule/locations` — lokalizacje firmy (id, nazwa, data utworzenia).
+- `POST /api/schedule/locations` — nowa lokalizacja; `409` gdy nazwa już istnieje, `400` gdy pusta.
 
-## Dostępności pracowników
-- `POST /schedule/availability/bulk` – zapisuje dostępność jednego pracownika dla wielu dni w jednym żądaniu.
-- `GET /schedule/availability` – pobiera listę zapisanych dostępności (filtrowanie po pracowniku i zakresie dat).
+## Dostępności
+- `POST /api/schedule/availability/bulk` — zapis dostępności jednego pracownika na wiele dni.
+- `GET /api/schedule/availability?employee_id=&date_from=&date_to=` — lista z paginacją (tylko firma z tokenu).
+- `GET /api/schedule/availability/mobile?employee_id=&date_from=&date_to=` — uproszczony format dla mobile (IDOR zamknięty: `employee_id` spoza firmy → pusta lista).
 
-## Zapotrzebowania dzienne
-- `POST /schedule/demand/day` – zapisuje zapotrzebowanie na konkretny dzień; jeżeli nie podasz listy zmian, używany jest domyślny szablon dla dnia tygodnia.
-- `GET /schedule/demand/day` – pobiera zapotrzebowanie na konkretny dzień; gdy brak rekordu, zwraca domyślne zmiany dla dnia tygodnia.
+## Zapotrzebowanie dzienne
+- `POST /api/schedule/demand/day` — zapis na dzień; bez `items` bierze szablon `DefaultDemand` dla weekday.
+- `GET /api/schedule/demand/day?date=&location=` — odczyt dnia (z fallbackiem do szablonu).
 
-## Domyślne zapotrzebowanie (szablony)
-- `POST /schedule/demand/default` – zapisuje szablon zmian dla jednego dnia tygodnia (0=poniedziałek … 6=niedziela).
-- `POST /schedule/demand/default/bulk` – zapisuje jednocześnie kilka dni tygodnia wraz z ich listami zmian.
-- `GET /schedule/demand/default` – zwraca wszystkie domyślne szablony dla lokalizacji; można filtrować po `weekday`.
-- `GET /schedule/demand/default/week` – zwraca listę siedmiu dni z domyślnymi zmianami (łącznie z dziedziczeniem ze wzoru ogólnego).
+## Szablony tygodniowe
+- `POST /api/schedule/demand/default` — szablon jednego weekday (`weekday=null` = wzór ogólny).
+- `POST /api/schedule/demand/default/bulk` — kilka weekdayów naraz.
+- `GET /api/schedule/demand/default?location=&weekday=` — zapisane szablony.
+- `GET /api/schedule/demand/default/week?location=` — 7 dni z `inherited` (dziedziczenie z wzoru ogólnego).
 
 ## Przegląd zapotrzebowań
-- `GET /schedule/demand/{demand_id}` – szczegóły pojedynczego zapotrzebowania (daty, lokalizacja, lista zmian).
-- `GET /schedule/demands` – lista ostatnio zapisanych zapotrzebowań z paginacją.
+- `GET /api/schedule/demand/{demand_id}` — szczegóły; `404` dla obcej firmy.
+- `GET /api/schedule/demands` — lista z paginacją (tylko firma z tokenu).
 
-## Zasady specjalne (opcjonalne funkcje) *
-- `POST /schedule/rules` – dodaje regułę modyfikującą zapotrzebowanie na podstawie wydarzeń specjalnych. *
-- `GET /schedule/rules` – lista reguł. *
-- `GET /schedule/rules/{rule_id}` – szczegóły reguły. *
+## Reguły i dni specjalne (per firma)
+- `POST /api/schedule/rules` — reguła (`override`/`multiplier`, `min_demand`/`max_demand`, `needs_experienced_default`).
+- `GET /api/schedule/rules`, `GET /api/schedule/rules/{rule_id}` — lista / szczegóły; obca firma → `404`.
+- `POST /api/schedule/special-days` — przypisanie reguły do daty i lokalizacji (`rule_id` musi należeć do firmy).
+- `GET /api/schedule/special-days?date_from=&date_to=&location=` — lista.
 
-## Dni specjalne (wykorzystują reguły) *
-- `POST /schedule/special-days` – przypisuje regułę do konkretnego dnia/lokalizacji. *
-- `GET /schedule/special-days` – lista dni z przypisanymi regułami (filtry po dacie i lokalizacji). *
-
-## Generowanie grafiku *
-- `POST /schedule/generate-day` – uruchamia solver i buduje grafik na jeden dzień. *
-- `POST /schedule/generate-range` – jak wyżej, ale dla zakresu dat. *
+## Generowanie grafiku
+- `POST /api/schedule/generate-day` — solver dla jednego dnia (`items` lub szablon); `400` gdy brak obu.
+- `POST /api/schedule/generate-range` — solver dla zakresu dat; `persist=false` liczy bez zapisu (wynik ma `id`, ale nic nie trafia do bazy).
+- `422` gdy solver zwróci `SolverError` albo wynik nie przejdzie `validate_schedule`; w drugim przypadku **nic nie jest zapisywane**.
 
 ## Grafik i zmiany
-- `GET /schedule/days/{day}` – szybki podgląd zmian zaplanowanych na konkretny dzień (zwraca również dane zapisane wcześniej przez solver).
-- `GET /schedule/{demand_id}` – wymusza wygenerowanie i zwraca wszystkie zmiany dla wskazanego zapotrzebowania.
-- `GET /schedule/{demand_id}/day/{day}` – zwraca tylko zmiany z danego grafiku dla jednej daty.
-- `GET /schedule/shift/{shift_id}` – szczegóły pojedynczej zmiany.
-- `POST /schedule/shift` – aktualizuje istniejącą zmianę (np. przypisanie pracowników).
+- `GET /api/schedule/days/{day}?location=` — podgląd dnia (zapisane zmiany, a jeśli brak — próba wygenerowania z indeksu dnia).
+- `GET /api/schedule/schedule/{demand_id}` — wymusza wygenerowanie i zwraca wszystkie zmiany zapotrzebowania.
+- `GET /api/schedule/schedule/{demand_id}/day/{day}` — zmiany jednego dnia w zapotrzebowaniu.
+- `GET /api/schedule/schedule/shift/{shift_uid}` — szczegóły zmiany (`shift_uid` z odpowiedzi generowania).
+- `POST /api/schedule/schedule/shift` — ręczna korekta (`user_edited=true`); `missing_segments`/`assigned_employees_detail` są zapisywane w `meta`.
 
-`*` – funkcje bardziej złożone, prawdopodobnie do uproszczenia lub usunięcia, jeżeli nie są potrzebne w podstawowej konfiguracji.
+## Kontrakt odpowiedzi grafiku
+`ScheduleShiftOut`: `id`, `date`, `location`, `start`, `end`, `demand`, `assigned_employees`, `needs_experienced`, `missing_minutes`, opcjonalnie `assigned_employees_detail` (segmenty), `missing_segments`, `experience_violated`.
+
+Testy kontraktu: `schedule/tests_api_endpoints.py`, `schedule/tests_tenancy.py`, `schedule/tests_e2e_api.py`.

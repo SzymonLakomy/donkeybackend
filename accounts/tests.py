@@ -219,3 +219,238 @@ class AttendanceCorrectionTestCase(APITestCase):
         self.assertIsNone(event.latitude)
         self.assertIsNone(event.longitude)
 
+
+class WorkplaceConfigPermissionTestCase(APITestCase):
+    """BACKLOG P0-2: geofencje zmienia tylko manager/owner, nie kazdy pracownik."""
+
+    def setUp(self):
+        self.company = Company.objects.create(
+            name="Geo Company",
+            code="GEO12345",
+            latitude=52.229676,
+            longitude=21.012229,
+            radius=100,
+        )
+        self.owner = User.objects.create_user(
+            email="owner@geo.test", password="testpass123",
+            first_name="Owner", last_name="Geo", company=self.company, role="owner",
+        )
+        self.manager = User.objects.create_user(
+            email="manager@geo.test", password="testpass123",
+            first_name="Manager", last_name="Geo", company=self.company, role="manager",
+        )
+        self.employee = User.objects.create_user(
+            email="employee@geo.test", password="testpass123",
+            first_name="Employee", last_name="Geo", company=self.company, role="employee",
+        )
+
+    def test_employee_cannot_change_geofence(self):
+        self.client.force_authenticate(user=self.employee)
+        response = self.client.post(
+            reverse("workplace-config"),
+            {"latitude": 10.0, "longitude": 10.0, "radius": 50000},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.company.refresh_from_db()
+        self.assertEqual(float(self.company.latitude), 52.229676)
+        self.assertEqual(self.company.radius, 100)
+
+    def test_manager_can_change_geofence(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(
+            reverse("workplace-config"),
+            {"latitude": 51.107883, "longitude": 17.038538, "radius": 250},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.radius, 250)
+
+    def test_employee_can_read_geofence(self):
+        self.client.force_authenticate(user=self.employee)
+        response = self.client.get(reverse("workplace-config"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["radius"], 100)
+
+
+class AttendanceGeofenceTestCase(APITestCase):
+    """BACKLOG P1-7: serwer liczy odleglosc i odrzuca check-in poza strefa."""
+
+    def setUp(self):
+        self.company = Company.objects.create(
+            name="Geo Attendance",
+            code="GEOATT01",
+            latitude=52.229676,
+            longitude=21.012229,
+            radius=150,
+        )
+        self.employee = User.objects.create_user(
+            email="worker@geo.test", password="testpass123",
+            first_name="Worker", last_name="Geo", company=self.company, role="employee",
+        )
+
+    def _event(self, **overrides):
+        payload = {
+            "type": "check_in",
+            "latitude": 52.229676,
+            "longitude": 21.012229,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload.update(overrides)
+        return self.client.post(reverse("attendance-event"), payload, format="json")
+
+    def test_check_in_inside_radius_is_accepted(self):
+        self.client.force_authenticate(user=self.employee)
+
+        response = self._event(latitude=52.229700, longitude=21.012300)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = AttendanceEvent.objects.get()
+        self.assertTrue(event.is_valid)
+        self.assertEqual(event.status, "approved")
+
+    def test_check_in_outside_radius_is_rejected(self):
+        self.client.force_authenticate(user=self.employee)
+
+        # ~1.1 km na polnoc od lokalu przy promieniu 150 m
+        response = self._event(latitude=52.239676, longitude=21.012229)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("outside of workplace radius", response.json()["detail"])
+        self.assertGreater(response.json()["distance"], 150)
+        self.assertFalse(AttendanceEvent.objects.exists())
+
+    def test_missing_company_location_rejects_coordinates(self):
+        self.company.latitude = None
+        self.company.longitude = None
+        self.company.save(update_fields=["latitude", "longitude"])
+        self.client.force_authenticate(user=self.employee)
+
+        response = self._event()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not configured", response.json()["detail"])
+        self.assertFalse(AttendanceEvent.objects.exists())
+
+    def test_event_without_coordinates_documents_remote_work_compromise(self):
+        """P1-5 (decyzja produktowa): brak wspolrzednych = zdarzenie poprawne, omija geofencje."""
+        self.client.force_authenticate(user=self.employee)
+
+        response = self.client.post(reverse("attendance-event"), {
+            "type": "check_in",
+            "timestamp": timezone.now().isoformat(),
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = AttendanceEvent.objects.get()
+        self.assertTrue(event.is_valid)
+        self.assertIsNone(event.latitude)
+
+
+class AttendanceCorrectionFlowTests(APITestCase):
+    """BACKLOG P1-6: korekta czekajaca na akceptacje nie zmienia statusu; manager ja rozstrzyga."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Korekty Co", code="KOR00001")
+        self.other_company = Company.objects.create(name="Inna Co", code="INN00001")
+        self.manager = User.objects.create_user(
+            email="manager@kor.test", password="testpass123",
+            first_name="Manager", last_name="Kor", company=self.company, role="manager",
+        )
+        self.other_manager = User.objects.create_user(
+            email="manager@inn.test", password="testpass123",
+            first_name="Obcy", last_name="Manager", company=self.other_company, role="manager",
+        )
+        self.employee = User.objects.create_user(
+            email="worker@kor.test", password="testpass123",
+            first_name="Worker", last_name="Kor", company=self.company, role="employee",
+        )
+
+    def _approved_check_in(self):
+        return AttendanceEvent.objects.create(
+            user=self.employee, type="check_in", timestamp=timezone.now(),
+            is_valid=True, is_correction=False, status="approved",
+        )
+
+    def _pending_correction(self, event_type="check_out"):
+        response = self.client.post(reverse("attendance-correction"), {
+            "timestamp": timezone.now().isoformat(),
+            "type": event_type,
+            "reason": "forgot",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return AttendanceEvent.objects.get(id=response.json()["id"])
+
+    def test_pending_correction_does_not_flip_status(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        self._pending_correction("check_out")
+
+        response = self.client.get(reverse("attendance-status"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_working"], "korekta pending nie moze zakonczyc pracy")
+        self.assertEqual(response.json()["pending_corrections"], 1)
+
+    def test_manager_approves_correction(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve", "reason": "potwierdzone",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "approved")
+        self.assertTrue(correction.is_valid)
+
+        self.client.force_authenticate(user=self.employee)
+        status_body = self.client.get(reverse("attendance-status")).json()
+        self.assertFalse(status_body["is_working"], "zatwierdzony check-out konczy prace")
+        self.assertEqual(status_body["pending_corrections"], 0)
+
+    def test_manager_rejects_correction(self):
+        self._approved_check_in()
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "reject",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "rejected")
+        self.assertFalse(correction.is_valid)
+
+    def test_employee_cannot_review_corrections(self):
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_foreign_manager_cannot_review_correction(self):
+        self.client.force_authenticate(user=self.employee)
+        correction = self._pending_correction("check_out")
+
+        self.client.force_authenticate(user=self.other_manager)
+        response = self.client.post(reverse("attendance-correction-review"), {
+            "id": correction.id, "decision": "approve",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        correction.refresh_from_db()
+        self.assertEqual(correction.status, "pending_approval")
+

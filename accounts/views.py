@@ -26,6 +26,7 @@ from .serializers import (
     AttendanceHistorySerializer,
     AttendanceCorrectionSerializer,
     AttendanceCorrectionResponseSerializer,
+    AttendanceCorrectionReviewSerializer,
 )
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -95,6 +96,16 @@ class CompanyCodeResetView(APIView):
 class WorkplaceConfigView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkplaceConfigSerializer
+
+    def get_permissions(self):
+        """Odczyt geofencji: kazdy zalogowany; zmiana: tylko manager/owner (BACKLOG P0-2).
+
+        Bez tego kazdy pracownik mogl przepisac wspolrzedne i promien strefy,
+        a potem "sprawdzic sie" z dowolnego miejsca.
+        """
+        if self.request.method in ("POST", "PUT", "PATCH"):
+            return [IsAuthenticated(), IsManager()]
+        return [IsAuthenticated()]
 
     @extend_schema(responses=WorkplaceConfigSerializer)
     def get(self, request):
@@ -182,7 +193,15 @@ class AttendanceStatusView(APIView):
     @extend_schema(responses=AttendanceStatusSerializer)
     def get(self, request):
         user = request.user
-        last_event = AttendanceEvent.objects.filter(user=user).order_by('-timestamp').first()
+        # Tylko zdarzenia zatwierdzone zmieniaja stan "w pracy". Korekta czekajaca
+        # na akceptacje managera (status='pending_approval') nie moze tego robic,
+        # bo pracownik sam przyznawalby sobie godziny (BACKLOG P1-6).
+        last_event = (
+            AttendanceEvent.objects
+            .filter(user=user, status='approved')
+            .order_by('-timestamp')
+            .first()
+        )
 
         is_working = False
         last_activity = None
@@ -191,9 +210,14 @@ class AttendanceStatusView(APIView):
             is_working = (last_event.type == 'check_in')
             last_activity = last_event.timestamp
 
+        pending = AttendanceEvent.objects.filter(
+            user=user, is_correction=True, status='pending_approval'
+        ).count()
+
         data = {
             "is_working": is_working,
-            "last_activity": last_activity
+            "last_activity": last_activity,
+            "pending_corrections": pending,
         }
         return Response(data)
 
@@ -318,4 +342,52 @@ class AttendanceCorrectionView(APIView):
             {"id": str(event.id), "status": "pending_approval"},
             status=status.HTTP_201_CREATED
         )
+
+
+class AttendanceCorrectionReviewView(APIView):
+    """Akceptacja/odrzucenie korekty obecnosci przez managera (BACKLOG P1-6).
+
+    Bez tego endpointu korekty zostawaly w `pending_approval` na zawsze, a pracownik
+    nie mial jak ich domknac. Manager widzi tylko zdarzenia wlasnej firmy.
+    """
+    permission_classes = [IsAuthenticated, IsManager]
+    serializer_class = AttendanceCorrectionReviewSerializer
+
+    @extend_schema(
+        request=AttendanceCorrectionReviewSerializer,
+        responses={200: {"type": "object", "properties": {"id": {"type": "integer"}, "status": {"type": "string"}}}},
+    )
+    def post(self, request):
+        serializer = AttendanceCorrectionReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        company = request.user.company
+        if not company:
+            return Response({"detail": "User has no company"}, status=status.HTTP_400_BAD_REQUEST)
+
+        event = (
+            AttendanceEvent.objects
+            .filter(
+                id=serializer.validated_data["id"],
+                is_correction=True,
+                status="pending_approval",
+                user__company=company,
+            )
+            .select_related("user")
+            .first()
+        )
+        if event is None:
+            return Response({"detail": "Correction not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if serializer.validated_data["decision"] == "approve":
+            event.status = "approved"
+            # Zatwierdzona korekta jest uznawana za zdarzenie poprawne - manager
+            # swiadomie akceptuje brak/niezgodnosc lokalizacji.
+            event.is_valid = True
+        else:
+            event.status = "rejected"
+            event.is_valid = False
+        event.save(update_fields=["status", "is_valid"])
+
+        return Response({"id": event.id, "status": event.status})
 
