@@ -34,12 +34,24 @@ SECRET_KEY = 'django-insecure--(bldwhrssp94-l6m!!j5u$1ns*jp)=b%7=s4=v8nx$-9&j(6q
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['http://localhost:8081/','localhost', '127.0.0.1', '[::1]', 'donkey.todayautomate.com', 'localhost:3000' , '141.145.204.102', 'https://donkeyfrontend.vercel.app/', 'donkeyfrontend.vercel.app', 'donkeyfrontend.vercel.app:443', "https://majawitosz.szymonlakomy.pl/"]
+# Django porownuje sam host (bez schematu i sciezki) - wpisy z "http://" nigdy nie pasuja.
+# Port podawaj tylko wtedy, gdy naprawde jest niestandardowy (np. mobile dev 8081).
+ALLOWED_HOSTS = [
+    'localhost',
+    'localhost:3000',
+    'localhost:8081',
+    '127.0.0.1',
+    '[::1]',
+    'donkey.todayautomate.com',
+    'donkeyfrontend.vercel.app',
+    '141.145.204.102',
+    'majawitosz.szymonlakomy.pl',
+]
 
 APPEND_SLASH = False
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = [
     "http://localhost",
     "http://localhost:3000",
     "http://localhost:8081",
