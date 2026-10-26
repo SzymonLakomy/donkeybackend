@@ -210,7 +210,9 @@ class SolverResultTests(TestCase):
 class ScheduleDetailPersistenceTests(TestCase):
     def test_generated_shifts_store_assignment_details(self):
         shift_date = date(2025, 1, 1)
+        company = Company.objects.create(name="Test Co", code="TST00001")
         demand = Demand.objects.create(
+            company=company,
             name="Test",
             raw_payload=[
                 {
@@ -228,12 +230,14 @@ class ScheduleDetailPersistenceTests(TestCase):
         )
 
         Availability.objects.create(
+            company=company,
             employee_id="1",
             employee_name="Jan",
             date=shift_date,
             available_slots=[{"start": "08:00", "end": "10:00"}],
         )
         Availability.objects.create(
+            company=company,
             employee_id="2",
             employee_name="Ola",
             date=shift_date,
@@ -280,7 +284,9 @@ class ScheduleRegenerationTests(TestCase):
 
     def test_force_regeneration_records_solver_metadata(self):
         shift_date = date(2025, 1, 1)
+        company = Company.objects.create(name="Regen Co", code="RGN00001")
         demand = Demand.objects.create(
+            company=company,
             name="Regen",
             raw_payload=[
                 {
@@ -298,6 +304,7 @@ class ScheduleRegenerationTests(TestCase):
         )
         for emp in ("1", "2"):
             Availability.objects.create(
+                company=company,
                 employee_id=emp,
                 employee_name=f"Pracownik {emp}",
                 date=shift_date,
@@ -333,7 +340,9 @@ class SolverValidationGateTests(TestCase):
         from schedule.api import _ensure_schedule_for_demand
 
         shift_date = date(2025, 1, 1)
+        company = Company.objects.create(name="Gate Co", code="GAT00001")
         demand = Demand.objects.create(
+            company=company,
             name="Gate",
             raw_payload=[
                 {
@@ -350,6 +359,7 @@ class SolverValidationGateTests(TestCase):
             date_to=shift_date,
         )
         Availability.objects.create(
+            company=company,
             employee_id="1",
             employee_name="Jan",
             date=shift_date,

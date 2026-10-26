@@ -8,6 +8,10 @@ from accounts.models import Company
 BIG_MAX = 1_000_000_000
 
 class Availability(models.Model):
+    # Firma jest granica danych (docs/decisions/2026-10-26-izolacja-po-company.md).
+    # null = rekord sprzed migracji bez mozliwego do ustalenia wlasciciela.
+    company       = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE,
+                                      related_name="availabilities", db_index=True)
     employee_id   = models.CharField(max_length=128, db_index=True)
     employee_name = models.CharField(max_length=255, blank=True, default="")
     date          = models.DateField(db_index=True)
@@ -32,10 +36,14 @@ class Availability(models.Model):
 
 
 class Demand(models.Model):
+    # Firma jest granica danych; content_hash jest unikalny DOPIERO w obrebie firmy,
+    # bo ten sam tydzien dwoch firm to dwa niezalezne zapotrzebowania.
+    company       = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE,
+                                      related_name="demands", db_index=True)
     name          = models.CharField(max_length=255, blank=True, default="")
     # Original list of demand shifts in donkey_ai format
     raw_payload   = models.JSONField(default=list)
-    content_hash  = models.CharField(max_length=64, unique=True, db_index=True)
+    content_hash  = models.CharField(max_length=64, db_index=True)
     date_from     = models.DateField(db_index=True)
     date_to       = models.DateField(db_index=True)
 
@@ -47,6 +55,10 @@ class Demand(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "content_hash"],
+                                    name="uniq_demand_company_hash"),
+        ]
 
     def __str__(self):
         return f"Demand#{self.id} {self.name} [{self.date_from}..{self.date_to}]"
@@ -145,7 +157,9 @@ class DayDemandIndex(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("date", "location", "day_hash")
+        # Dwie firmy moga miec ten sam dzien i ten sam hash - indeks jest per zapotrzebowanie,
+        # inaczej unikalny constraint blokowalby drugiej firmie zapis.
+        unique_together = ("demand", "date", "location", "day_hash")
         indexes = [
             models.Index(fields=["date", "location"]),
             models.Index(fields=["day_hash"]),
