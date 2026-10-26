@@ -219,3 +219,60 @@ class AttendanceCorrectionTestCase(APITestCase):
         self.assertIsNone(event.latitude)
         self.assertIsNone(event.longitude)
 
+
+class WorkplaceConfigPermissionTestCase(APITestCase):
+    """BACKLOG P0-2: geofencje zmienia tylko manager/owner, nie kazdy pracownik."""
+
+    def setUp(self):
+        self.company = Company.objects.create(
+            name="Geo Company",
+            code="GEO12345",
+            latitude=52.229676,
+            longitude=21.012229,
+            radius=100,
+        )
+        self.owner = User.objects.create_user(
+            email="owner@geo.test", password="testpass123",
+            first_name="Owner", last_name="Geo", company=self.company, role="owner",
+        )
+        self.manager = User.objects.create_user(
+            email="manager@geo.test", password="testpass123",
+            first_name="Manager", last_name="Geo", company=self.company, role="manager",
+        )
+        self.employee = User.objects.create_user(
+            email="employee@geo.test", password="testpass123",
+            first_name="Employee", last_name="Geo", company=self.company, role="employee",
+        )
+
+    def test_employee_cannot_change_geofence(self):
+        self.client.force_authenticate(user=self.employee)
+        response = self.client.post(
+            reverse("workplace-config"),
+            {"latitude": 10.0, "longitude": 10.0, "radius": 50000},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.company.refresh_from_db()
+        self.assertEqual(float(self.company.latitude), 52.229676)
+        self.assertEqual(self.company.radius, 100)
+
+    def test_manager_can_change_geofence(self):
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.post(
+            reverse("workplace-config"),
+            {"latitude": 51.107883, "longitude": 17.038538, "radius": 250},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.radius, 250)
+
+    def test_employee_can_read_geofence(self):
+        self.client.force_authenticate(user=self.employee)
+        response = self.client.get(reverse("workplace-config"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["radius"], 100)
+

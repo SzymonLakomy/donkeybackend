@@ -96,6 +96,16 @@ class WorkplaceConfigView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkplaceConfigSerializer
 
+    def get_permissions(self):
+        """Odczyt geofencji: kazdy zalogowany; zmiana: tylko manager/owner (BACKLOG P0-2).
+
+        Bez tego kazdy pracownik mogl przepisac wspolrzedne i promien strefy,
+        a potem "sprawdzic sie" z dowolnego miejsca.
+        """
+        if self.request.method in ("POST", "PUT", "PATCH"):
+            return [IsAuthenticated(), IsManager()]
+        return [IsAuthenticated()]
+
     @extend_schema(responses=WorkplaceConfigSerializer)
     def get(self, request):
         company = request.user.company
