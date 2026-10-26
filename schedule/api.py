@@ -49,6 +49,7 @@ from .schemas import (
 )
 from donkeybackend.security import DRFJWTAuth
 from .solver import run_solver, SolverError
+from .validation import validate_schedule
 
 api = Router(tags=["schedule"], auth=DRFJWTAuth())
 #api = Router(tags=["schedule"])
@@ -1166,6 +1167,15 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False) -> tuple[List[Di
     demand_payload = _apply_special_rules_to_demand(d.raw_payload or [], d.date_from, d.date_to)
 
     res = _safe_run_solver(emp_avail, demand_payload, previous=previous)
+
+    # Siatka bezpieczenstwa: nie zapisujemy grafiku, ktory lamie reguly kalendarza
+    # (nakladki, przypisania poza dostepnoscia, nadmiar osob). Dotyczy kazdego zrodla.
+    violations = validate_schedule(res.get("assignments", []), emp_avail, demand_payload)
+    if violations:
+        raise HttpError(
+            422,
+            "Solver zwrócił niespójny grafik: " + "; ".join(violations[:3]),
+        )
 
     # Persist assignments per day/shift
     ass = res.get("assignments", []) or []

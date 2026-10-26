@@ -145,3 +145,29 @@ class BrokenScheduleTests(SimpleTestCase):
         self.assertGreaterEqual(len(overlaps), 2,
                                 f"AI-owe nakladki nie zostaly wykryte: {violations}")
         self.assertTrue(all("karina" in v for v in overlaps), overlaps)
+
+
+class ConfirmedShiftTests(SimpleTestCase):
+    def test_confirmed_shift_may_exceed_declared_availability(self):
+        """Potwierdzona zmiana (assigned_shift.confirmed) jest decyzja managera - nie jest bledem."""
+        availability = [{
+            "employee_id": "a",
+            "date": "2026-01-05",
+            "available_slots": [{"start": "10:00", "end": "12:00"}],
+            "assigned_shift": {"location": "A", "start": "14:00", "end": "18:00", "confirmed": True},
+        }]
+        assignments = [_assignment("2026-01-05", "14:00", "18:00", 1, [("a", "14:00", "18:00")])]
+
+        self.assertEqual(validate_schedule(assignments, availability), [])
+
+    def test_unconfirmed_shift_outside_availability_is_flagged(self):
+        availability = [{
+            "employee_id": "a",
+            "date": "2026-01-05",
+            "available_slots": [{"start": "10:00", "end": "12:00"}],
+            "assigned_shift": {"location": "A", "start": "14:00", "end": "18:00", "confirmed": False},
+        }]
+        assignments = [_assignment("2026-01-05", "14:00", "18:00", 1, [("a", "14:00", "18:00")])]
+
+        violations = validate_schedule(assignments, availability)
+        self.assertTrue(any("zadeklarowal" in v for v in violations), violations)

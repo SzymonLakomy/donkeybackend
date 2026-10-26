@@ -320,3 +320,76 @@ class ScheduleRegenerationTests(TestCase):
         self.assertEqual(len(assignments), 1)
         self.assertEqual(len(assignments[0]["assigned_employees"]), 1,
                          "popyt 1 powinien byc pokryty przez dokladnie jedna osobe")
+
+
+@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}})
+class SolverValidationGateTests(TestCase):
+    """Niespojny wynik solvera nie moze trafic do bazy (siatka bezpieczenstwa w API)."""
+
+    def test_inconsistent_solver_output_is_rejected_and_not_persisted(self):
+        from unittest.mock import patch
+
+        from ninja.errors import HttpError
+        from schedule.api import _ensure_schedule_for_demand
+
+        shift_date = date(2025, 1, 1)
+        demand = Demand.objects.create(
+            name="Gate",
+            raw_payload=[
+                {
+                    "date": shift_date.isoformat(),
+                    "location": "Main",
+                    "start": "08:00",
+                    "end": "12:00",
+                    "demand": 1,
+                    "needs_experienced": False,
+                }
+            ],
+            content_hash="validation-gate-test",
+            date_from=shift_date,
+            date_to=shift_date,
+        )
+        Availability.objects.create(
+            employee_id="1",
+            employee_name="Jan",
+            date=shift_date,
+            available_slots=[{"start": "08:00", "end": "12:00"}],
+        )
+
+        def _detail(emp):
+            return {
+                "employee_id": emp,
+                "employee_name": emp,
+                "start": "08:00",
+                "end": "12:00",
+                "minutes": 240,
+                "segments": [{"start": "08:00", "end": "12:00", "minutes": 240}],
+            }
+
+        # Dwie osoby na zmiane z popytem 1 -> grafik niemozliwy do przyjecia.
+        broken = {
+            "assignments": [{
+                "date": shift_date.isoformat(),
+                "location": "Main",
+                "start": "08:00",
+                "end": "12:00",
+                "demand": 1,
+                "assigned_employees": ["1", "2"],
+                "needs_experienced": False,
+                "missing_minutes": 0,
+                "assigned_employees_detail": [_detail("1"), _detail("2")],
+                "missing_segments": [],
+                "experience_violated": False,
+            }],
+            "uncovered": [],
+            "hours_summary": [],
+            "status": "OPTIMAL",
+            "metrics": {},
+        }
+
+        with patch("schedule.api._safe_run_solver", return_value=broken):
+            with self.assertRaises(HttpError) as ctx:
+                _ensure_schedule_for_demand(demand, force=True)
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertFalse(demand.shifts.exists(), "niespojny grafik nie moze trafic do bazy")

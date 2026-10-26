@@ -59,6 +59,22 @@ def build_availability_index(emp_availability: Iterable[Dict[str, Any]]) -> Dict
     return index
 
 
+def build_confirmed_index(emp_availability: Iterable[Dict[str, Any]]) -> Dict[Tuple[str, str], List[Interval]]:
+    """(employee_id, data) -> przedzialy potwierdzonych zmian (assigned_shift.confirmed).
+
+    Potwierdzona zmiana moze wyjsc poza zadeklarowana dostepnosc - to celowe
+    (manager ja przypial), wiec walidator nie moze jej oznaczac jako blad.
+    """
+    index: Dict[Tuple[str, str], List[Interval]] = defaultdict(list)
+    for rec in emp_availability or []:
+        asg = rec.get("assigned_shift") or {}
+        if isinstance(asg, dict) and asg.get("confirmed"):
+            b = _bounds(asg.get("start"), asg.get("end"))
+            if b:
+                index[(str(rec.get("employee_id")), str(rec.get("date")))].append(b)
+    return index
+
+
 def _segments_of(assignment: Dict[str, Any], shift: Interval) -> List[Tuple[str, int, int]]:
     """Zwraca (employee_id, start_min, end_min); brak detaili => cala zmiana."""
     out: List[Tuple[str, int, int]] = []
@@ -88,6 +104,7 @@ def validate_schedule(assignments: Sequence[Dict[str, Any]],
     """Zwraca liste naruszen; pusta lista = grafik przechodzi walidacje."""
     violations: List[str] = []
     avail = build_availability_index(emp_availability)
+    confirmed = build_confirmed_index(emp_availability)
 
     demand_keys = set()
     for row in demand or []:
@@ -135,7 +152,9 @@ def validate_schedule(assignments: Sequence[Dict[str, Any]],
                     f"{price}: {emp} ma blok {end - start} min, minimum to {min_block_minutes} min"
                 )
             slots = avail.get((emp, date), [])
-            if not any(s <= start and end <= e for s, e in slots):
+            pinned = confirmed.get((emp, date), [])
+            in_confirmed = any(s <= start and end <= e for s, e in pinned)
+            if not in_confirmed and not any(s <= start and end <= e for s, e in slots):
                 declared = ", ".join(f"{_fmt(s)}-{_fmt(e)}" for s, e in slots) or "brak"
                 violations.append(
                     f"{price}: {emp} przypisany {_fmt(start)}-{_fmt(end)}, "
