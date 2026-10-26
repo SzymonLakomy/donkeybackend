@@ -141,3 +141,52 @@ class TenantIsolationTests(TestCase):
             "assigned_employees": [],
         }, self.tenant_b["access"])
         self.assertEqual(response.status_code, 404, response.content[:300])
+
+    def _create_rule_and_special_day(self, tenant, value=3):
+        response = self._post("/api/schedule/rules", {
+            "name": f"Reguła {value}",
+            "mode": "override",
+            "value": value,
+        }, tenant["access"])
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        rule = response.json()
+
+        response = self._post("/api/schedule/special-days", {
+            "date": DAYS[0],
+            "location": "",
+            "rule_id": rule["id"],
+        }, tenant["access"])
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        return rule
+
+    def test_event_rules_and_special_days_are_scoped(self):
+        self._create_rule_and_special_day(self.tenant_a)
+
+        self.assertEqual(self._get("/api/schedule/rules", self.tenant_b["access"]).json(), [])
+        self.assertEqual(self._get("/api/schedule/special-days", self.tenant_b["access"]).json(), [])
+
+        self.assertEqual(len(self._get("/api/schedule/rules", self.tenant_a["access"]).json()), 1)
+        self.assertEqual(len(self._get("/api/schedule/special-days", self.tenant_a["access"]).json()), 1)
+
+    def test_special_day_changes_only_own_company_demand(self):
+        self._create_rule_and_special_day(self.tenant_a, value=3)
+
+        payload = {
+            "date_from": DAYS[0],
+            "date_to": DAYS[-1],
+            "location": LOCATION,
+            "persist": True,
+            "force": True,
+            "items": None,
+        }
+        generated_a = self._post("/api/schedule/generate-range", payload, self.tenant_a["access"]).json()
+        day_a = [a for a in generated_a["assignments"] if a["date"] == DAYS[0]]
+        self.assertTrue(day_a)
+        self.assertTrue(all(a["demand"] == 3 for a in day_a),
+                        f"reguła firmy A nie zadziałała: {[a['demand'] for a in day_a]}")
+
+        generated_b = self._post("/api/schedule/generate-range", payload, self.tenant_b["access"]).json()
+        day_b = [a for a in generated_b["assignments"] if a["date"] == DAYS[0]]
+        self.assertTrue(day_b)
+        self.assertTrue(all(a["demand"] == 1 for a in day_b),
+                        f"reguła firmy A wpłynęła na grafik firmy B: {[a['demand'] for a in day_b]}")

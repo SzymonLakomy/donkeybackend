@@ -105,6 +105,9 @@ class EventRule(models.Model):
         (MODE_MULTIPLIER, "Multiplier"),
     ]
 
+    # Reguly sa per firma: swieto jednego lokalu nie moze zmieniac zapotrzebowania innej firmy.
+    company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="event_rules", db_index=True)
     name = models.CharField(max_length=255)
     mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_OVERRIDE)
     value = models.FloatField(help_text="If override: target demand (int). If multiplier: multiply incoming demand.")
@@ -126,6 +129,8 @@ class EventRule(models.Model):
 
 
 class SpecialDay(models.Model):
+    company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="special_days", db_index=True)
     date = models.DateField(db_index=True)
     location = models.CharField(max_length=255, blank=True, default="", db_index=True)
     rule = models.ForeignKey(EventRule, related_name="special_days", on_delete=models.PROTECT)

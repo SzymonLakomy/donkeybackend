@@ -1047,10 +1047,12 @@ def list_demands(request, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
     return {"count": count, "next": next_off, "previous": prev_off, "results": out}
 
 
-def _apply_special_rules_to_demand(items: List[Dict[str, Any]], date_from, date_to) -> List[Dict[str, Any]]:
+def _apply_special_rules_to_demand(items: List[Dict[str, Any]], date_from, date_to,
+                                   company=None) -> List[Dict[str, Any]]:
     """Apply SpecialDay/EventRule transformations to incoming demand items without mutating originals.
     - Exact (date+location) rules take precedence; then wildcard (date+"") rules are applied if present.
     - Multiple rules for the same key are applied in creation order.
+    - `company` ogranicza reguly do jednej firmy (izolacja danych).
     """
     import math
     # Preload active special days + rules within range
@@ -1059,7 +1061,10 @@ def _apply_special_rules_to_demand(items: List[Dict[str, Any]], date_from, date_
         date__gte=date_from,
         date__lte=date_to,
         rule__active=True,
-    ).order_by("created_at", "id")
+    )
+    if company is not None:
+        sd_qs = sd_qs.filter(company=company)
+    sd_qs = sd_qs.order_by("created_at", "id")
 
     # Build mapping: (date_iso, location) -> [rule,...]; wildcard stored with location ""
     map_by_key: dict[tuple[str, str], list] = {}
@@ -1184,7 +1189,8 @@ def _ensure_schedule_for_demand(d: Demand, force: bool = False,
     emp_avail = _build_emp_availability(d.date_from, d.date_to, company=company)
 
     # Apply special rules (holidays/events) before solving
-    demand_payload = _apply_special_rules_to_demand(d.raw_payload or [], d.date_from, d.date_to)
+    demand_payload = _apply_special_rules_to_demand(d.raw_payload or [], d.date_from, d.date_to,
+                                                    company=company)
 
     res = _safe_run_solver(emp_avail, demand_payload, previous=previous)
 
@@ -1255,7 +1261,9 @@ def create_rule(request, payload: EventRuleIn):
         raise HttpError(401, "Unauthorized")
     if payload.mode not in (EventRule.MODE_OVERRIDE, EventRule.MODE_MULTIPLIER):
         raise HttpError(400, "Invalid mode: must be 'override' or 'multiplier'")
+    company = _get_company_for_request(request)
     obj = EventRule.objects.create(
+        company=company,
         name=payload.name,
         mode=payload.mode,
         value=float(payload.value),
@@ -1280,7 +1288,7 @@ def create_rule(request, payload: EventRuleIn):
 def list_rules(request) -> List[EventRuleOut]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-    qs = EventRule.objects.all().order_by("name", "id")
+    qs = EventRule.objects.filter(company=_get_company_for_request(request)).order_by("name", "id")
     return [
         dict(
             id=o.id,
@@ -1300,7 +1308,7 @@ def get_rule(request, rule_id: int):
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
     try:
-        o = EventRule.objects.get(id=rule_id)
+        o = EventRule.objects.get(id=rule_id, company=_get_company_for_request(request))
     except EventRule.DoesNotExist:
         raise HttpError(404, "Rule not found")
     return dict(
@@ -1321,11 +1329,13 @@ def get_rule(request, rule_id: int):
 def create_special_day(request, payload: SpecialDayIn):
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
+    company = _get_company_for_request(request)
     try:
-        rule = EventRule.objects.get(id=payload.rule_id)
+        rule = EventRule.objects.get(id=payload.rule_id, company=company)
     except EventRule.DoesNotExist:
         raise HttpError(400, "Invalid rule_id")
     obj, created = SpecialDay.objects.get_or_create(
+        company=company,
         date=payload.date,
         location=(payload.location or ""),
         rule=rule,
@@ -1352,7 +1362,9 @@ def create_special_day(request, payload: SpecialDayIn):
 def list_special_days(request, date_from: date_type | None = None, date_to: date_type | None = None, location: str | None = None) -> List[SpecialDayOut]:
     if not request.user or not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-    qs = SpecialDay.objects.select_related("rule").all()
+    qs = SpecialDay.objects.select_related("rule").filter(
+        company=_get_company_for_request(request)
+    )
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:
@@ -1453,7 +1465,7 @@ def generate_day(request, payload: GenerateDayIn):
             # compute ad-hoc for this day, do not persist
             emp_avail = _build_emp_availability(d.date_from, d.date_to, company=company)
             # Apply special rules only to day items
-            demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt)
+            demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt, company=company)
             res = _safe_run_solver(emp_avail, demand_payload)
             return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
         # ensure schedule persisted
@@ -1472,7 +1484,7 @@ def generate_day(request, payload: GenerateDayIn):
 
     if payload.persist is False:
         emp_avail = _build_emp_availability(day_dt, day_dt, company=company)
-        demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt)
+        demand_payload = _apply_special_rules_to_demand(canon_items, day_dt, day_dt, company=company)
         res = _safe_run_solver(emp_avail, demand_payload)
         return dict(demand_id=d.id, assignments=_with_ids(d.id, res.get("assignments", [])), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
 
@@ -1537,7 +1549,7 @@ def generate_range(request, payload: GenerateRangeIn):
     if payload.persist is False:
         # Compute ad-hoc without persisting
         emp_avail = _build_emp_availability(start, end, company=company)
-        demand_payload = _apply_special_rules_to_demand(full_items, start, end)
+        demand_payload = _apply_special_rules_to_demand(full_items, start, end, company=company)
         res = _safe_run_solver(emp_avail, demand_payload)
         return dict(demand_id=d.id, assignments=res.get("assignments", []), summary={"uncovered": res.get("uncovered", []), "hours_summary": res.get("hours_summary", [])})
 
